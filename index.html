@@ -439,7 +439,9 @@
       Arquitetura ativa: 48 KC · 96 sinapses plásticas · Filtro APL 35% · Memória de trabalho recorrente.
     </div>
 
+      <div style="margin-top:9px"><button type="button" id="brain-runtime-toggle" disabled>Carregando motor Rust…</button></div>
     </details>
+    <div id="brain-runtime" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted)">Motor: JavaScript (carregando Rust…)</div>
 
   </div>
 </div>
@@ -1868,7 +1870,7 @@ document.getElementById('btn-reset-weights').addEventListener('click', () => {
   brain.shortW.fill(0);
   brain.longW.fill(0);
   brain.elig.fill(0);
-  neuroEthology=new FlyNeuroEthology();
+  neuroEthology=window.DevilPetNeuralFactory?.odor?.(47) || new FlyNeuroEthology();
   statusLine.textContent = 'Pesos sinápticos zerados (memória limpa).';
 });
 
@@ -1877,7 +1879,7 @@ document.querySelectorAll('.tier-btn').forEach(btn => {
     document.querySelectorAll('.tier-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     const tier = btn.dataset.tier;
-    brain = new ArchitecturalFlyBrain(tier, 42);
+    brain = window.DevilPetNeuralFactory?.brain?.(tier,42) || new ArchitecturalFlyBrain(tier,42);
     document.getElementById('tier-info').textContent =
       `Arquitetura ativa: ${brain.nKC} KC · ${brain.nPlastic} sinapses plásticas · APL ${Math.round(brain.cfg.aplGain * 100)}% · Recorrência ${Math.round(brain.cfg.recGain * 100)}%.`;
     statusLine.textContent = `Cérebro expandido para ${brain.cfg.name} (${brain.nTotal} neurônios no circuito).`;
@@ -1895,7 +1897,8 @@ document.getElementById('btn-save').addEventListener('click', () => {
       longW: Array.from(brain.longW),
       pet, score, streak, missionIdx, missionHits, flyPos,
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
-      neuroEthology:neuroEthology.snapshot()
+      neuroEthology:neuroEthology.snapshot(),
+      rustState: brain.isRust ? brain.fullSnapshot() : undefined
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
     statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`;
@@ -1910,11 +1913,16 @@ document.getElementById('btn-load').addEventListener('click', () => {
     if (!raw) { statusLine.textContent = 'Nenhum pet salvo ainda.'; return; }
     const d = JSON.parse(raw);
     if (d.petName) document.getElementById('pet-name').value = d.petName;
-    brain = new ArchitecturalFlyBrain(d.tierKey || 'drosophila', 42);
+    brain = window.DevilPetNeuralFactory?.brain?.(d.tierKey||'drosophila',42) ||
+      new ArchitecturalFlyBrain(d.tierKey || 'drosophila', 42);
     brain.tick = d.tick || 0;
-    brain.rng.setState(d.rng || 42);
+    brain.rng.setState(d.rng ?? 42);
     if (d.shortW && d.shortW.length === brain.shortW.length) brain.shortW.set(d.shortW);
     if (d.longW && d.longW.length === brain.longW.length) brain.longW.set(d.longW);
+    if (brain.isRust && d.rustState) {
+      try { brain.restoreFull(d.rustState); }
+      catch(e) { console.warn('Rust state incomplete; restored legacy weights',e); }
+    }
     if (d.pet) pet = d.pet;
     sleeping = !!d.sleeping;
     sleepElapsedSeconds = Number.isFinite(d.sleepElapsedSeconds) ? Math.max(0,d.sleepElapsedSeconds) : 0;
@@ -1926,7 +1934,8 @@ document.getElementById('btn-load').addEventListener('click', () => {
     );
     btnSleep.classList.toggle('active', sleeping);
     btnSleep.textContent = sleeping ? 'Acordar Pet' : 'Descansar (LTM)';
-    neuroEthology=new FlyNeuroEthology();neuroEthology.restore(d.neuroEthology);
+    neuroEthology=window.DevilPetNeuralFactory?.odor?.(47) || new FlyNeuroEthology();
+    neuroEthology.restore(d.neuroEthology);
     score = d.score || 0; streak = d.streak || 0;
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;
@@ -1971,13 +1980,26 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') autoSavePet();
 });
 
+// The Rust WebAssembly bridge only changes the controller implementation.
+// All physics, controls and original JS neural classes remain available.
+window.DevilPetRuntime = {
+  getBrain:()=>brain, setBrain:v=>{brain=v;},
+  getOdor:()=>neuroEthology, setOdor:v=>{neuroEthology=v;},
+  tiers:TIERS, JsSparse:ArchitecturalFlyBrain, JsOdor:FlyNeuroEthology,
+  installFactory:f=>{window.DevilPetNeuralFactory=f;}
+};
 window.addEventListener('resize', resize);
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   resize();
   if (localStorage.getItem('drosophila_3d_trainer_v1')) {
     document.getElementById('btn-load').click();
   } else {
   }
+  // Give the optional Rust engine a short opportunity to initialize before
+  // rendering the first frame. Fail open to the original JS game if unavailable.
+  if (window.DevilPetRustBoot) await Promise.race([
+    window.DevilPetRustBoot, new Promise(resolve=>setTimeout(resolve,2500))
+  ]);
   lastMetabolismStamp = performance.now();
   if (rafId) cancelAnimationFrame(rafId);
   animate();
@@ -1987,5 +2009,6 @@ window.addEventListener('load', () => {
 <script src="./ethology.js?v=line1"></script>
 <script src="./ethology-line-chart.js?v=line1"></script>
 <script src="./ethology-lab.js?v=line1"></script>
+<script type="module" src="./wasm-activate.js?v=wasm1"></script>
 </body>
 </html>

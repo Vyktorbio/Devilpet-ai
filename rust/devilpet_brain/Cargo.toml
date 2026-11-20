@@ -11,3 +11,10 @@ serde_json = "1"
 [[bin]]
 name = "devilpet-reference"
 path = "src/bin/reference.rs"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+serde-wasm-bindgen = "0.6"

@@ -17,3 +17,6 @@ pub use sparse::{
     ArchitecturalFlyBrain, BrainError, BrainOutput, BrainTelemetry, JsCheckpoint,
     FullSnapshot, Tier,
 };
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
