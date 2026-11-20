@@ -1,0 +1,80 @@
+name: Build and publish Rust WASM DevilPet
+
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "wasm-activate.js"
+      - "rust/devilpet_brain/**"
+      - ".github/workflows/rust-wasm-pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "wasm-activate.js"
+      - "rust/devilpet_brain/**"
+      - ".github/workflows/rust-wasm-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "rust-wasm-pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: v0.13.1
+      - name: Run native reference tests and WASM build
+        run: |
+          cd rust/devilpet_brain
+          cargo test --all-targets
+          wasm-pack build --release --target web --out-dir pkg
+          test -s pkg/devilpet_brain.js
+          test -s pkg/devilpet_brain_bg.wasm
+          node -e 'const fs=require("fs"); WebAssembly.compile(fs.readFileSync("pkg/devilpet_brain_bg.wasm")).then(()=>console.log("WebAssembly binary compiles")).catch(e=>{console.error(e); process.exit(1)})'
+      - name: Create standalone Pages artifact
+        run: |
+          mkdir -p _site/rust/devilpet_brain/pkg
+          cp index.html ./*.js _site/
+          cp rust/devilpet_brain/pkg/devilpet_brain.js _site/rust/devilpet_brain/pkg/
+          cp rust/devilpet_brain/pkg/devilpet_brain_bg.wasm _site/rust/devilpet_brain/pkg/
+          touch _site/.nojekyll
+          test -s _site/neural-engine.js
+          test -s _site/wasm-activate.js
+          test -s _site/rust/devilpet_brain/pkg/devilpet_brain_bg.wasm
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Upload WASM for pull request inspection
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: devilpet-rust-wasm
+          path: |
+            rust/devilpet_brain/pkg/devilpet_brain.js
+            rust/devilpet_brain/pkg/devilpet_brain_bg.wasm
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy public game with Rust engine
+        id: deployment
+        uses: actions/deploy-pages@v4
