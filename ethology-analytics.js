@@ -17,7 +17,7 @@
     for(const [key, value] of Object.entries(counters||{})){
       const [from,to]=key.split('>');
       const i=states.indexOf(from),j=states.indexOf(to);
-      if(i<0||j<0||i===j||!Number.isFinite(value)||value<=0)continue;
+      if(i<0||j<0||!Number.isFinite(value)||value<=0)continue;
       matrix[i][j]+=value;
     }
     const totals=matrix.map(row=>row.reduce((a,b)=>a+b,0));
