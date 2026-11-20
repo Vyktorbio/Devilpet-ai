@@ -71,13 +71,34 @@
     a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();
     setTimeout(()=>URL.revokeObjectURL(u),1000);
   }
+  // Serialize the living neural state directly. Never mutate the neural model or
+  // rely on a possibly stale 30-second localStorage autosave for an exported backup.
+  function currentCheckpoint() {
+    return {
+      petName: document.getElementById('pet-name').value,
+      tierKey: brain.tierKey,
+      tick: brain.tick,
+      rng: brain.rng.getState(),
+      shortW: Array.from(brain.shortW),
+      longW: Array.from(brain.longW),
+      pet: {...pet},
+      score, streak, missionIdx, missionHits,
+      flyPos: {...flyPos},
+      sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
+      neuroEthology: neuroEthology.snapshot()
+    };
+  }
   function backup() {
-    persist();
-    let checkpoint=null;
-    try {checkpoint=JSON.parse(localStorage.getItem(PET_KEY)||'null');} catch(_){}
-    download('devilpet-backup-'+dayKey(new Date())+'.json',
-      JSON.stringify({format:'devilpet-backup-v1',createdAt:new Date().toISOString(),checkpoint:checkpoint,ethology:data},null,2),
-      'application/json;charset=utf-8');
+    try {
+      const checkpoint = currentCheckpoint();
+      persist();
+      download('devilpet-backup-'+dayKey(new Date())+'.json',
+        JSON.stringify({format:'devilpet-backup-v1',createdAt:new Date().toISOString(),checkpoint,ethology:data},null,2),
+        'application/json;charset=utf-8');
+      log('Backup exportado','Cópia do estado neural atual e do diário');
+    } catch (err) {
+      alert('Não foi possível exportar o backup: '+err.message);
+    }
   }
   function csv() {
     const header=['data_iso','x','y','z','estado','guiado','energia','descanso','vinculo','arquitetura'];
@@ -155,6 +176,20 @@
       e.preventDefault();e.stopImmediatePropagation();
     } else {log('Memória neural zerada','Confirmação do cuidador');persist();}
   },true);
+  // Switching architecture constructs a new brain in the existing game.
+  // Give the caregiver a chance to cancel; this observer never changes brain code.
+  document.querySelectorAll('.tier-btn').forEach(btn => {
+    btn.addEventListener('click', event => {
+      if(btn.dataset.tier === brain.tierKey) return;
+      const current = brain.tierKey;
+      if(!confirm('Trocar a arquitetura cria um cérebro novo e descarta o aprendizado neural atual da sessão. Exporte um backup JSON primeiro. Quer continuar?')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      log('Troca de arquitetura', current+' → '+btn.dataset.tier+' (nova rede neural)');
+    }, true);
+  });
   document.getElementById('eth-export-json').addEventListener('click',backup);
   document.getElementById('eth-export-csv').addEventListener('click',csv);
   document.getElementById('eth-clear').addEventListener('click',()=>{
