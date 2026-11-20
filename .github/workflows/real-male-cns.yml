@@ -57,14 +57,14 @@ jobs:
                   if name=="annotations":
                       assert "bodyId" in cols
           PY
-      - name: Import EVERY official edge with no additional filtering
-        timeout-minutes: 20
+      - name: Import all original CNS edges (vectorized, observable, no additional filtering)
+        timeout-minutes: 25
         run: |
-          python connectomes/import_graph.py \
+          python -u connectomes/import_graph.py \
             --edges /tmp/malecns-2026/weights.feather \
             --nodes /tmp/malecns-2026/annotations.feather \
             --pre body_pre --post body_post --weight weight \
-            --node-column bodyId --batch-size 100000 \
+            --node-column bodyId --batch-size 500000 \
             --dataset male-cns-v1.0-2026 --version v1.0 \
             --source https://male-cns.janelia.org/download/ \
             --license CC-BY-4.0 \
