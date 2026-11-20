@@ -142,6 +142,9 @@
   function backup() {
     // Save live weights first; the previous automatic checkpoint can be up to 30 s old.
     document.getElementById('btn-save').click();
+    if(document.getElementById('status-line')?.textContent==='Armazenamento local indisponível.'){
+      alert('Armazenamento indisponível. Exportação cancelada para não recuperar dados antigos.');return;
+    }
     persist();
     let checkpoint=null;
     try {checkpoint=JSON.parse(localStorage.getItem(PET_KEY)||'null');} catch(_){}
@@ -276,6 +279,16 @@
         log(name,'posição '+flyPos.x.toFixed(1)+','+flyPos.z.toFixed(1));
       },true);
    });
+  // Keyboard shortcuts also count as caregiver interventions; only the diary is affected.
+  window.addEventListener('keydown',e=>{
+    const tag=document.activeElement?.tagName;
+    if(e.repeat || tag==='INPUT' || tag==='TEXTAREA' || tag==='BUTTON')return;
+    if(e.code==='Space' || e.key==='+' || e.key==='x' || e.key==='X' || e.key==='-'){
+      caregiverUntil=performance.now()+5000;
+      log((e.code==='Space'||e.key==='+')?'PAM aplicado pelo teclado':'PPL1 aplicado pelo teclado',
+        'posição '+flyPos.x.toFixed(1)+','+flyPos.z.toFixed(1));
+    }
+  },true);
   const viewport=document.getElementById('viewport');
   if(viewport)viewport.addEventListener('pointerup',()=>{if(placeMode==='call'){
     caregiverUntil=performance.now()+5000;
