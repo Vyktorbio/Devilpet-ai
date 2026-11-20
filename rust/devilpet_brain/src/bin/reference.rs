@@ -25,11 +25,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             let checkpoint=json.get("checkpoint").ok_or("missing checkpoint")?;
             let t=checkpoint.get("tierKey").ok_or("missing tierKey")?;
             let tier:Tier=serde_json::from_value(t.clone())?;
-            let seed=checkpoint.get("rng").and_then(Value::as_u64).unwrap_or(42) as u32;
-            // Important: the browser exports the *current* RNG state rather than
-            // its founder seed. The genuine founder seed cannot be recovered
-            // from an old backup without additional historical metadata.
-            let genome=Genome::founder(a[3].clone(),tier,seed,"America/Sao_Paulo");
+            // The existing browser always constructs sparse KC wiring with seed 42,
+            // then restores the saved RNG state. Do not confuse those values.
+            let genome=Genome::founder(a[3].clone(),tier,42,"America/Sao_Paulo");
             let pet=PortablePet::from_browser_backup(&json,genome)?;
             println!("{}",serde_json::to_string_pretty(&pet)?);
         },
