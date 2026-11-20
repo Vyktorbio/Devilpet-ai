@@ -107,7 +107,15 @@ jobs:
         run: |
           # Crucial: the branch publisher may serve the checked-out repository
           # directly, without compiled WASM. All required scene assets must be present.
-          python3 -m http.server 8138 --bind 127.0.0.1 --directory . >/tmp/devilpet-branch-http.log 2>&1 &
+          mkdir -p /tmp/devilpet-branch-pages/{vendor,environment,fly,connectomes}
+          cp index.html ./*.js /tmp/devilpet-branch-pages/
+          cp vendor/three.min.js /tmp/devilpet-branch-pages/vendor/
+          cp environment/*.js /tmp/devilpet-branch-pages/environment/
+          cp fly/*.js /tmp/devilpet-branch-pages/fly/
+          cp connectomes/index.html connectomes/datasets.json /tmp/devilpet-branch-pages/connectomes/
+          # Deliberately omit rust/devilpet_brain/pkg from this tree, exactly
+          # like a Pages branch build serving the checked-in files.
+          python3 -m http.server 8138 --bind 127.0.0.1 --directory /tmp/devilpet-branch-pages >/tmp/devilpet-branch-http.log 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
           sleep 2
