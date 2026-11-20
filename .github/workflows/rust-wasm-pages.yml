@@ -85,6 +85,10 @@ jobs:
           assert.ok(restored.odor_value(0)>0);
           console.log('Rust WASM: both circuits execute and memories roundtrip.');
           NODE
+      - name: Integration test opt-in engine and automatic JS fallback
+        run: |
+          cd rust/devilpet_brain/pkg
+          node ../tests/runtime-smoke.mjs
       - name: Create standalone Pages artifact
         run: |
           mkdir -p _site/rust/devilpet_brain/pkg
