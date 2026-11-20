@@ -4,11 +4,12 @@
 const assert=require('node:assert/strict');
 const {transitions,msd,dailyTrend}=require('./ethology-analytics.js');
 const approx=(v,expected)=>assert.ok(Math.abs(v-expected)<1e-9,`${v} != ${expected}`);
-const m=transitions({'fly>perch':3,'fly>ground':1,'perch>fly':2,'fly>fly':99,'invalid':10});
-assert.equal(m.n,6);
+const m=transitions({'fly>perch':3,'fly>ground':1,'perch>fly':2,'fly>fly':2,'invalid':10});
+assert.equal(m.n,8);
 const f=m.states.indexOf('fly'),p=m.states.indexOf('perch'),g=m.states.indexOf('ground');
-approx(m.probabilities[f][p],.75);
-approx(m.probabilities[f][g],.25);
+approx(m.probabilities[f][p],.5);
+approx(m.probabilities[f][g],1/6);
+approx(m.probabilities[f][f],1/3);
 assert.equal(m.probabilities[p][f],1);
 assert.equal(m.probabilities[g][f],null);
 assert.equal(transitions({}).n,0);
