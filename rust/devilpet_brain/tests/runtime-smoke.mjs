@@ -61,6 +61,7 @@ assert.equal(odor.isRust,true);
 assert.equal(brain.tick,beforeTick);
 assert.equal(brain.rng.getState(),beforeRng);
 assert.ok(Math.abs(Array.from(brain.shortW)[0]-before)<1e-12);
+assert.ok(brain.rng.next()>=0&&brain.rng.next()<1, 'scene movement needs RNG.next');
 assert.ok(Math.abs(odor.odorValue(0)-odorBefore)<1e-12);
 brain.stepWindow(args,0,.8,true,15);
 const snapshot=brain.fullSnapshot();
