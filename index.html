@@ -30,7 +30,7 @@
   }
   .layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 355px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px;
     padding: 14px;
     max-width: 1600px;
@@ -320,6 +320,11 @@
     color: var(--muted);
     margin-left: 4px;
   }
+  .pet-data-drawer { padding: 0; overflow: hidden; }
+  .pet-data-summary { cursor: pointer; padding: 14px 18px; font-size: 14px; font-weight: 600; list-style-position: inside; }
+  .pet-data-hint { float: right; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .pet-data-content { padding: 4px 18px 18px; }
+  .pet-data-drawer:not([open]) .pet-data-content { display: none; }
 </style>
 <script src="./neural-engine.js?v=stable-rollback-20261120"></script>
 </head>
@@ -387,7 +392,10 @@
     </div>
   </div>
 
-  <div class="card">
+  <details class="card pet-data-drawer" id="pet-data-drawer">
+    <summary class="pet-data-summary">Dados da mosca <span class="pet-data-hint">Abrir / fechar</span></summary>
+    <div class="pet-data-content">
+  <div class="pet-data-inner">
     <div class="pet-header">
       <input id="pet-name" class="pet-name-input" type="text" value="Melanogaster #01" aria-label="Nome da mosca virtual">
       <span class="personality-badge" id="pet-personality">Exploradora</span>
@@ -438,7 +446,9 @@
 
     </details>
 
-  </div>
+  </div
+    </div>
+  </details>
 </div>
 
 <script>
