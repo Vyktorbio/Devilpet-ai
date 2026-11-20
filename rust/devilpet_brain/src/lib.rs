@@ -1,15 +1,19 @@
 //! DevilPet: portable, headless Rust neural engine.
 //!
-//! This is a port of the current simplified JS neuron/plasticity engine.
-//! It is NOT a complete Drosophila connectome or a biological validation.
-//! The browser's neural-engine.js is an independent, unmodified reference.
-//! Browser geometry, action selection, circadian control, and game UI are not
-//! part of the sparse KC/MBON circuit.
+//! This crate translates the *reduced* JS neuron/plasticity engine.
+//! It is NOT a full biological Drosophila brain or ventral nerve cord.
+//! The original JS engine is unchanged; the game still uses JavaScript.
+//! A portable genome stores inherited settings separately from learned synapses.
 
 pub mod rng;
 pub mod sparse;
 pub mod odor;
+pub mod portable;
 
-pub use odor::{FlyNeuroEthology, OdorSignal, FruitPatch, OdorDecision, OdorSnapshot};
+pub use odor::{FlyNeuroEthology, OdorSignal, FruitPatch, OdorDecision, OdorSnapshot, PetVitals};
+pub use portable::{PortablePet, PortableMind, Genome, CircadianProfile, FORMAT};
 pub use rng::Mulberry32;
-pub use sparse::{ArchitecturalFlyBrain, BrainError, BrainOutput, BrainTelemetry, JsCheckpoint, Tier};
+pub use sparse::{
+    ArchitecturalFlyBrain, BrainError, BrainOutput, BrainTelemetry, JsCheckpoint,
+    FullSnapshot, Tier,
+};
