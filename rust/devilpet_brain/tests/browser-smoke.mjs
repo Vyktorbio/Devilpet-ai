@@ -51,7 +51,20 @@ try {
   await page.waitForFunction(()=>window.DevilPetRustStatus().mode==='javascript',{timeout:10000});
   assert.equal(await page.evaluate(()=>!!window.DevilPetRuntime.getBrain().isRust),false);
   assert.ok(!errors.length,'Browser runtime error: '+errors.join(' | '));
-  console.log('PASS: 3D scene booted, JS brain animated, Rust enabled, Rust animated, JS fallback.');
+  const catalogResponse=await page.goto('http://127.0.0.1:8137/connectomes/',{
+    waitUntil:'domcontentloaded',timeout:15000
+  });
+  assert.equal(catalogResponse.status(),200,'research page must be published');
+  await page.waitForFunction(()=>document.querySelectorAll('#datasets article').length>=6,
+    {timeout:10000});
+  const research=await page.evaluate(()=>({
+    sources:document.querySelectorAll('#datasets article').length,
+    female:document.body.textContent.includes('banc-female-2026-v888'),
+    male:document.body.textContent.includes('male-cns-v1.0-2026')
+  }));
+  assert.ok(research.female&&research.male,'published catalogue must contain both 2026 whole CNS datasets');
+  console.log('PASS: 3D pet, JS/Rust switch and scientific connectome catalogue all work.');
+
 }finally {
   await browser.close();
 }

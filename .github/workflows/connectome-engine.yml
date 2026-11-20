@@ -1,0 +1,49 @@
+name: Connectome graph engine (real dataset pipeline)
+
+on:
+  pull_request:
+    paths:
+      - "connectomes/**"
+      - "rust/connectome_engine/**"
+      - ".github/workflows/connectome-engine.yml"
+  push:
+    branches: [main]
+    paths:
+      - "connectomes/**"
+      - "rust/connectome_engine/**"
+      - ".github/workflows/connectome-engine.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install conversion dependencies
+        run: python -m pip install "numpy>=1.26,<3" "pyarrow>=18,<26"
+      - name: Test streaming converter with synthetic directed edges and isolated nodes
+        run: python -m unittest discover -s connectomes/tests -v
+      - name: Rust graph reader, source provenance and propagation tests
+        run: cargo test --all-targets --manifest-path rust/connectome_engine/Cargo.toml
+      - name: Test CLI against real binary CSR format produced by importer
+        run: |
+          tmp=$(mktemp -d)
+          printf 'body_pre,body_post,weight\n101,202,12\n202,303,8\n101,303,3\n' > "$tmp/edges.csv"
+          python connectomes/import_graph.py \
+            --edges "$tmp/edges.csv" --pre body_pre --post body_post \
+            --weight weight --dataset synthetic-fixture --version 1 \
+            --source synthetic://ci --license test-only --out "$tmp/graph" \
+            --batch-size 10
+          cargo run --quiet --manifest-path rust/connectome_engine/Cargo.toml \
+            --bin connectome-cli -- inspect "$tmp/graph"
+          cargo run --quiet --manifest-path rust/connectome_engine/Cargo.toml \
+            --bin connectome-cli -- neighbors "$tmp/graph" 101 10
+          cargo run --quiet --manifest-path rust/connectome_engine/Cargo.toml \
+            --bin connectome-cli -- pulse "$tmp/graph" 101 3

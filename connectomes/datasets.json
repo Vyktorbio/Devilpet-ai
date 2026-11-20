@@ -1,0 +1,108 @@
+{
+  "schema": "devilpet-connectome-catalog-v1",
+  "notes": "Conectomas diferentes representam indivíduos/preparações diferentes; não concatenar arestas nem IDs. Reproduções dos dados devem citar os autores, versão e licença de cada fonte.",
+  "datasets": [
+    {
+      "id": "banc-female-2026-v888",
+      "status": "published",
+      "anatomy": [
+        "brain",
+        "optic_lobes",
+        "ventral_nerve_cord"
+      ],
+      "sex": "female",
+      "same_specimen": true,
+      "neuron_count_reported": 158262,
+      "version": "v888",
+      "release": "2026",
+      "paper": "Bates et al., Distributed control circuits across a brain-and-cord connectome, Nature 2026",
+      "paper_url": "https://www.nature.com/articles/s41586-026-10735-w",
+      "access_url": "https://doi.org/10.7910/DVN/7WTH1N",
+      "portal": "https://codex.flywire.ai/?dataset=banc",
+      "license": "CC-BY-4.0",
+      "import": "Get author-released connectivity CSV/Feather/Parquet; choose the matching pre/post/synapse-count columns explicitly; official dataset has several synapse-thresholded variants."
+    },
+    {
+      "id": "male-cns-v1.0-2026",
+      "status": "published",
+      "anatomy": [
+        "brain",
+        "optic_lobes",
+        "ventral_nerve_cord"
+      ],
+      "sex": "male",
+      "same_specimen": true,
+      "neuron_count_reported": 166691,
+      "version": "v1.0",
+      "release": "2026",
+      "paper": "Berg et al., Sexual dimorphism in the complete Drosophila male central nervous system connectome, Cell 2026",
+      "paper_url": "https://doi.org/10.1016/j.cell.2026.08.015",
+      "access_url": "https://male-cns.janelia.org/download/",
+      "license": "CC-BY-4.0",
+      "edges_url": "https://storage.googleapis.com/flyem-male-cns/v1.0/connectome-data/flat-connectome/connectome-weights-male-cns-v1.0-minconf-0.5.feather",
+      "nodes_url": "https://storage.googleapis.com/flyem-male-cns/v1.0/connectome-data/flat-connectome/body-annotations-male-cns-v1.0-minconf-0.5.feather",
+      "edge_columns": [
+        "body_pre",
+        "body_post",
+        "weight"
+      ],
+      "node_column": "bodyId",
+      "import": "Large 1+GB edge table; build CSR on PC or server, not in phone browser."
+    },
+    {
+      "id": "flywire-fafb-v783",
+      "status": "published",
+      "anatomy": [
+        "brain",
+        "optic_lobes"
+      ],
+      "sex": "female",
+      "same_specimen": true,
+      "neuron_count_reported": 139255,
+      "version": "v783",
+      "paper": "Dorkenwald et al., Neuronal wiring diagram of an adult brain, Nature 2024",
+      "paper_url": "https://www.nature.com/articles/s41586-024-07558-y",
+      "access_url": "https://zenodo.org/records/10676866",
+      "license": "CC-BY-4.0",
+      "import": "Download proofread_connections_783.feather and root ID list; do not append to BANC."
+    },
+    {
+      "id": "manc-v1.2.1",
+      "status": "published",
+      "anatomy": [
+        "ventral_nerve_cord"
+      ],
+      "sex": "male",
+      "same_specimen": true,
+      "version": "v1.2.1",
+      "access_url": "https://www.janelia.org/project-team/flyem/manc-connectome",
+      "license": "CC-BY-4.0",
+      "import": "Separate male adult nerve cord; for unified same-individual brain+cord prefer Male CNS v1.0."
+    },
+    {
+      "id": "hemibrain-v1.2.1",
+      "status": "published",
+      "anatomy": [
+        "central_brain_subset"
+      ],
+      "sex": "female",
+      "same_specimen": true,
+      "version": "v1.2.1",
+      "access_url": "https://www.janelia.org/project-team/flyem/hemibrain",
+      "license": "CC-BY-4.0",
+      "import": "Partial brain reference for cross-dataset analysis, not a whole CNS."
+    },
+    {
+      "id": "fanc",
+      "status": "partial_proofreading",
+      "anatomy": [
+        "ventral_nerve_cord"
+      ],
+      "sex": "female",
+      "version": "community releases",
+      "access_url": "https://github.com/htem/FANC_auto_recon/wiki",
+      "license": "verify-with-publisher",
+      "import": "Verify permission, proofreading coverage and data version before ingestion."
+    }
+  ]
+}
