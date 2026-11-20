@@ -44,6 +44,47 @@ jobs:
           test -s pkg/devilpet_brain.js
           test -s pkg/devilpet_brain_bg.wasm
           node -e 'const fs=require("fs"); WebAssembly.compile(fs.readFileSync("pkg/devilpet_brain_bg.wasm")).then(()=>console.log("WebAssembly binary compiles")).catch(e=>{console.error(e); process.exit(1)})'
+      - name: Smoke-test live Rust WASM execution, reinforcement and portable state
+        run: |
+          cd rust/devilpet_brain/pkg
+          cp devilpet_brain.js devilpet_brain.mjs
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          import init, { WasmSparseBrain, WasmOdorBrain } from './devilpet_brain.mjs';
+          const bytes=fs.readFileSync('./devilpet_brain_bg.wasm');
+          await init({module_or_path:bytes});
+          for(const tier of ['drosophila','expanded','bee','super']){
+            const brain=new WasmSparseBrain(tier,42);
+            const baseline=brain.get_short_weights();
+            assert.equal(baseline.every(x=>x===0),true);
+            const output=brain.step(.75,.05,.1,.4,.5,1,.02,true,15);
+            assert.ok(Array.isArray(output.mbonApproach));
+            assert.ok(Number.isFinite(output.sparsityPct));
+            assert.equal(brain.get_tick(),60);
+            assert.ok(brain.get_short_weights().some(x=>x!==0));
+            const snap=brain.full_snapshot_json();
+            const replay=new WasmSparseBrain(tier,99);
+            replay.restore_full_json(snap);
+            assert.equal(replay.get_rng_state(),brain.get_rng_state());
+            const a=brain.step(.4,.2,.3,.1,.8,0,.85,true,15);
+            const b=replay.step(.4,.2,.3,.1,.8,0,.85,true,15);
+            assert.equal(a.dnSpikes,b.dnSpikes);
+            brain.reset_weights();
+            assert.equal(brain.get_short_weights().every(x=>x===0),true);
+          }
+          const odor=new WasmOdorBrain(47);
+          const choice=odor.choose(.5,.5,.5,.5,.5,.8,.6);
+          assert.ok(['alimentar','explorar','repousar','brincar'].includes(choice.activity));
+          odor.reinforce(0,1);
+          assert.equal(odor.get_rewards(),1);
+          const state=odor.snapshot_json();
+          const restored=new WasmOdorBrain(47);
+          restored.restore_json(state);
+          assert.equal(restored.get_rewards(),1);
+          assert.ok(restored.odor_value(0)>0);
+          console.log('Rust WASM: both circuits execute and memories roundtrip.');
+          NODE
       - name: Create standalone Pages artifact
         run: |
           mkdir -p _site/rust/devilpet_brain/pkg
