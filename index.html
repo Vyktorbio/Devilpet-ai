@@ -128,14 +128,14 @@
   .viewport {
     position: relative;
     width: 100%;
-    height: calc(100dvh - 190px);
-    min-height: 340px;
+    height: calc((100dvh - 190px) * 0.9);
+    min-height: 306px;
     border-radius: 14px;
     overflow: hidden;
     border: 1px solid rgba(148, 163, 184, 0.16);
     background: radial-gradient(circle at 50% 35%, #111827 0%, #070a10 100%);
   }
-  @media (max-width: 640px) { .viewport { height: calc(100dvh - 225px); min-height: 260px; } }
+  @media (max-width: 640px) { .viewport { height: calc((100dvh - 225px) * 0.9); min-height: 234px; } }
   .cam-hud {
     position: absolute;
     bottom: 12px;
