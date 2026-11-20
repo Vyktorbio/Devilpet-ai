@@ -3,7 +3,8 @@ name: Import complete Male CNS 2026 into Python CSR engine
 # This is a one-shot bulk DATA acquisition job, not a Pages deployment.
 # The actual official 1.1 GB full segment-to-segment edge table is used.
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths:
       - ".github/workflows/real-male-cns.yml"
       - "connectomes/import_graph.py"
