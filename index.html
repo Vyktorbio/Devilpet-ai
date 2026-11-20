@@ -874,6 +874,7 @@ function detectPerch() {
 }
 
 function computePersonality(tel) {
+  if (cnsBridge.active) return 'CNS experimental — sem perfil comportamental validado';
   if (sleeping) return 'Dormindo (LTM)';
   if (pet.energy < 0.28) return 'Faminta';
   if (pet.rest < 0.25) return 'Exausta';
@@ -886,6 +887,10 @@ function computePersonality(tel) {
 }
 
 function triggerReinforcement(val) {
+  if (cnsBridge.active) {
+    statusLine.textContent='PAM/PPL1 ainda não implementado no conectoma completo; nenhum reforço foi aplicado.';
+    return;
+  }
   if (sleeping) {
     statusLine.textContent = 'Seu pet está dormindo para consolidar memória longa. Acorde-a primeiro.';
     return;
@@ -1725,7 +1730,8 @@ document.getElementById('btn-save').addEventListener('click', () => {
       rustState: brain.isRust ? brain.fullSnapshot() : undefined
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
-    statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`;
+    statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`+
+      (cnsBridge.active?' O CNS externo não foi incluído nesse checkpoint.':'');
   } catch (e) {
     statusLine.textContent = 'Armazenamento local indisponível.';
   }
