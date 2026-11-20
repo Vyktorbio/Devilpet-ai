@@ -1,74 +1,80 @@
-/* Experimental embodied controller: perception -> motivation -> associative memory -> motor.
- * Independent of DOM/Three.js. All quantities are virtual, not calibrated biology.
- * This module is opt-in and does not modify the stable pet or its saved weights.
+/* Sensorimotor plastic controller. No action labels, goals or target coordinates.
+ * Virtual neural model, not a biological connectome reconstruction.
  */
 (function(root){
 'use strict';
-const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,Number.isFinite(x)?x:0));
-const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
+const clip=(v,a=-1,b=1)=>Math.max(a,Math.min(b,Number.isFinite(v)?v:0));
 class FlyBehavior {
- constructor({seed=17,learningRate=.24}={}){
-  this.seed=(seed>>>0)||0x9e3779b9;this.learningRate=learningRate;
-  this.values=new Map();this.eligibility=new Map();
-  this.state={energy:1,rest:1,threat:0,curiosity:.6};
-  this.mode='explore';this.lastCue=null;this.lastMotor=null;this.steps=0;
+ constructor({seed=17,learningRate=.035}={}){
+  this.seed=(seed>>>0)||17;this.learningRate=learningRate;
+  this.inputs=20;this.hidden=32;this.outputs=3;this.steps=0;
+  this.w1=new Float32Array(this.inputs*this.hidden);
+  this.w2=new Float32Array(this.hidden*this.outputs);
+  this.b1=new Float32Array(this.hidden);this.b2=new Float32Array(this.outputs);
+  this.trace=new Float32Array(this.w2.length);
+  this.activity=new Float32Array(this.hidden);
+  this.prevReward=0;this.lastMotor=null;this.mode='neural';
+  for(let i=0;i<this.w1.length;i++)this.w1[i]=(this.random()-.5)*.65;
+  for(let i=0;i<this.w2.length;i++)this.w2[i]=(this.random()-.5)*.25;
+  this.b2[0]=.45;
  }
  random(){let x=this.seed;x^=x<<13;x^=x>>>17;x^=x<<5;this.seed=x>>>0;return this.seed/4294967296;}
- // Uses sensory observation ONLY. No access to target coordinates or world.
- step(frame,{dt=.1,reward=0}={}){
+ step(frame,{dt=.016,reward=0}={}){
   if(!frame?.proprioception||!frame?.mechanosense||!frame?.vision||!Array.isArray(frame.odors))throw new TypeError('invalid sensory frame');
-  if(!Number.isFinite(dt)||dt<=0||dt>1)throw new RangeError('dt');
-  const p=frame.proprioception,m=frame.mechanosense;
-  this.state.energy=clamp(p.energy);this.state.rest=clamp(p.rest);
-  this.state.curiosity=clamp(p.curiosity);this.state.threat=clamp(Math.max(m.front||0,m.contact?1:0));
-  // Eligibility is credited to PREVIOUS observed stimulus, never future stimulus.
-  if(this.lastCue!==null&&Number.isFinite(reward)&&reward!==0)this.reinforce(this.lastCue,reward);
-  const odorL=frame.odors.reduce((s,o)=>s+clamp(o.left),0);
-  const odorR=frame.odors.reduce((s,o)=>s+clamp(o.right),0);
-  const odor=clamp((odorL+odorR)/2);
-  const dominant=frame.odors.reduce((best,o)=>{const strength=clamp(o.left)+clamp(o.right);return strength>best.strength?{identity:String(o.identity||'fruit').slice(0,64),strength}:best;},{identity:'fruit',strength:0});
-  const cue=odor>.015?'odor:'+dominant.identity:clamp(frame.vision.contrast)>.2?'visual':'neutral';
-  const value=this.values.get(cue)||0;
-  const hunger=1-this.state.energy,fatigue=1-this.state.rest;
-  const danger=this.state.threat;
-  const scores={
-   avoid:danger*2.4+Math.max(0,-value)*odor,
-   feed:hunger*1.6+Math.max(0,value)*odor+(frame.taste?.food?1:0),
-   rest:fatigue*1.9,
-   explore:.25+this.state.curiosity*.7
-  };
-  this.mode=Object.keys(scores).reduce((a,b)=>scores[b]>scores[a]?b:a,'explore');
-  // Left/right differential gives steering without privileged positions.
-  const gradient=clamp((odorL-odorR)/(odorL+odorR+.02),-1,1);
-  const visual=clamp((clamp(frame.vision.left)-clamp(frame.vision.right)),-1,1);
-  const avoidance=clamp((clamp(m.right)-clamp(m.left)), -1,1);
-  const obstacle=clamp(m.front);
-  const seek=this.mode==='feed'?(value<0?-1:1):this.mode==='avoid'?-1:0;
-  const turn=clamp(seek*(gradient*.75+visual*.2)+avoidance*.8+(obstacle>.65?.65:0)+(this.random()-.5)*.15,-1,1);
-  const forward=this.mode==='rest'?0:clamp((this.mode==='avoid'?.8:.45)+hunger*.15-obstacle*.65);
-  const lift=this.mode==='avoid'?clamp(.3+danger*.6):this.mode==='rest'?0:clamp((frame.airflow?.forward||0)*-.2);
-  this.lastCue=cue;this.steps++;
-  this.lastMotor={forward,turn,lift,activity:forward+Math.abs(turn)+lift,mode:this.mode};
-  return {...this.lastMotor,perception:{odorLeft:odorL,odorRight:odorR,obstacle,visual,threat:danger},motivation:{...scores},memoryValue:value};
+  if(!(dt>0&&dt<=1))throw new RangeError('dt');
+  const p=frame.proprioception,m=frame.mechanosense,v=frame.vision;
+  const odorL=frame.odors.reduce((s,o)=>s+clip(o.left,0,1),0);
+  const odorR=frame.odors.reduce((s,o)=>s+clip(o.right,0,1),0);
+  const x=[
+   clip(odorL,0,1),clip(odorR,0,1),clip(v.left,0,1),clip(v.right,0,1),
+   clip(m.left,0,1),clip(m.front,0,1),clip(m.right,0,1),m.contact?1:0,
+   clip(frame.moisture||0,0,1),frame.taste?.water?1:0,frame.taste?.food?1:0,
+   clip(p.energy,0,1),clip(p.rest,0,1),clip(p.hydration??1,0,1),
+   clip(p.curiosity,0,1),clip(p.altitude,0,1),
+   clip(frame.airflow?.forward||0),clip(frame.airflow?.lateral||0),
+   clip(p.headingSin||0),clip(p.headingCos||0)
+  ];
+  // Delayed reward updates the previously active sensorimotor synapses.
+  const r=clip(reward);
+  const predictionError=r-this.prevReward;
+  if(this.steps>0&&Number.isFinite(reward)){
+   for(let i=0;i<this.w2.length;i++)this.w2[i]=clip(this.w2[i]+this.learningRate*predictionError*this.trace[i],-2,2);
+  }
+  this.prevReward=this.prevReward*.98+r*.02;
+  for(let j=0;j<this.hidden;j++){
+   let sum=this.b1[j];
+   for(let i=0;i<this.inputs;i++)sum+=x[i]*this.w1[i*this.hidden+j];
+   this.activity[j]=Math.tanh(sum);
+  }
+  const outputs=[];
+  for(let k=0;k<this.outputs;k++){
+   let sum=this.b2[k];
+   for(let j=0;j<this.hidden;j++)sum+=this.activity[j]*this.w2[j*this.outputs+k];
+   outputs.push(Math.tanh(sum));
+  }
+  // Exploratory noise supplies variation, but never selects a named behavior.
+  const forward=clip((outputs[0]+1)/2+(this.random()-.5)*.12,0,1);
+  const turn=clip(outputs[1]+(this.random()-.5)*.24);
+  const lift=clip(outputs[2]+(this.random()-.5)*.1);
+  const motor=[forward*2-1,turn,lift];
+  for(let j=0;j<this.hidden;j++)for(let k=0;k<3;k++){
+   const index=j*3+k;
+   this.trace[index]=clip(this.trace[index]*.97+this.activity[j]*motor[k]*.03,-1,1);
+  }
+  this.steps++;
+  this.lastMotor={forward,turn,lift,activity:forward+Math.abs(turn)+Math.abs(lift),mode:'neural'};
+  return {...this.lastMotor,perception:{odorLeft:odorL,odorRight:odorR,obstacle:clip(m.front,0,1)},motivation:{},memoryValue:0};
  }
- reinforce(cue,reward){
-  if(typeof cue!=='string'||!Number.isFinite(reward))throw new TypeError('invalid reinforcement');
-  const old=this.values.get(cue)||0;
-  this.values.set(cue,clamp(old+this.learningRate*clamp(reward,-1,1)*(1-Math.abs(old)),-1,1));
- }
- sleep({durationSeconds=60}={}){
-  if(!Number.isFinite(durationSeconds)||durationSeconds<0||durationSeconds>86400)throw new RangeError('durationSeconds');
-  // Simplified retention; no unsupported claim of sleep-dependent biological consolidation.
-  const retention=Math.exp(-durationSeconds/6048000);
-  for(const [k,v] of this.values)this.values.set(k,v*retention);
- }
- snapshot(){return {version:1,seed:this.seed,steps:this.steps,values:Object.fromEntries(this.values),state:{...this.state}};}
+ sleep({durationSeconds=60}={}){if(!(durationSeconds>=0&&durationSeconds<=86400))throw new RangeError('durationSeconds');}
+ snapshot(){return {version:2,seed:this.seed,steps:this.steps,w1:Array.from(this.w1),w2:Array.from(this.w2),b1:Array.from(this.b1),b2:Array.from(this.b2),trace:Array.from(this.trace),prevReward:this.prevReward};}
  restore(s){
-  if(s?.version!==1||!Number.isInteger(s.seed)||!Number.isInteger(s.steps)||s.steps<0||!s.values||typeof s.values!=='object')throw new TypeError('invalid snapshot');
-  const vals=Object.entries(s.values);
-  if(vals.length>100||vals.some(([k,v])=>k.length>64||!Number.isFinite(v)||Math.abs(v)>1))throw new TypeError('invalid memory');
-  this.seed=(s.seed>>>0)||0x9e3779b9;this.steps=s.steps;this.values=new Map(vals);this.lastCue=null;
-  if(s.state&&typeof s.state==='object')for(const k of ['energy','rest','threat','curiosity'])if(Number.isFinite(s.state[k]))this.state[k]=clamp(s.state[k]);
+  if(s?.version===1){this.seed=s.seed>>>0;this.steps=0;return;}
+  if(s?.version!==2||!Number.isInteger(s.seed)||!Number.isInteger(s.steps)||s.steps<0)throw new TypeError('invalid snapshot');
+  for(const [key,target] of [['w1',this.w1],['w2',this.w2],['b1',this.b1],['b2',this.b2],['trace',this.trace]]){
+   if(!Array.isArray(s[key])||s[key].length!==target.length||!s[key].every(Number.isFinite))throw new TypeError('invalid neural weights');
+   target.set(s[key]);
+  }
+  this.seed=s.seed>>>0;this.steps=s.steps;this.prevReward=Number.isFinite(s.prevReward)?s.prevReward:0;
  }
 }
 const api=Object.freeze({FlyBehavior});
