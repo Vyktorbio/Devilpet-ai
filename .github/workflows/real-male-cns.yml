@@ -1,0 +1,125 @@
+name: Import REAL complete Male CNS 2026 connectivity
+
+# This is a one-shot bulk DATA acquisition job, not a Pages deployment.
+# The actual official 1.1 GB full segment-to-segment edge table is used.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/real-male-cns.yml"
+      - "connectomes/import_graph.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  import-complete-cns:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Feather importer with reproducible dependencies
+        run: python -m pip install "numpy>=1.26,<3" "pyarrow>=18,<26"
+      - name: Download OFFICIAL complete synaptic graph and metadata
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/malecns-2026 data/compiled
+          BASE=https://storage.googleapis.com/flyem-male-cns/v1.0/connectome-data/flat-connectome
+          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 850 \
+            "$BASE/connectome-weights-male-cns-v1.0-minconf-0.5.feather" \
+            -o /tmp/malecns-2026/weights.feather
+          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 120 \
+            "$BASE/body-annotations-male-cns-v1.0-minconf-0.5.feather" \
+            -o /tmp/malecns-2026/annotations.feather
+          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 180 \
+            "$BASE/body-neurotransmitters-male-cns-v1.0.feather" \
+            -o /tmp/malecns-2026/neurotransmitters.feather
+          sha256sum /tmp/malecns-2026/*.feather | tee /tmp/malecns-2026/input-sha256.txt
+          du -h /tmp/malecns-2026/*.feather
+          df -h .
+      - name: Inspect ACTUAL Arrow schema (do not guess columns)
+        run: |
+          python - <<'PY'
+          import pyarrow.feather as feather
+          for name in ["weights","annotations","neurotransmitters"]:
+              path=f"/tmp/malecns-2026/{name}.feather"
+              table=feather.read_table(path, memory_map=True)
+              print(name, "rows=",table.num_rows,"schema=",table.schema)
+              if name=="weights":
+                  assert {"body_pre","body_post","weight"}.issubset(table.column_names),table.column_names
+              if name=="annotations":
+                  assert "bodyId" in table.column_names
+              del table
+          PY
+      - name: Import EVERY official edge with no additional filtering
+        timeout-minutes: 20
+        run: |
+          python connectomes/import_graph.py \
+            --edges /tmp/malecns-2026/weights.feather \
+            --nodes /tmp/malecns-2026/annotations.feather \
+            --pre body_pre --post body_post --weight weight \
+            --node-column bodyId --batch-size 100000 \
+            --dataset male-cns-v1.0-2026 --version v1.0 \
+            --source https://male-cns.janelia.org/download/ \
+            --license CC-BY-4.0 \
+            --out data/compiled/male-cns-v1.0
+      - name: Validate real full CNS graph using Rust memory-mapped reader
+        timeout-minutes: 8
+        run: |
+          cargo run --release --quiet \
+            --manifest-path rust/connectome_engine/Cargo.toml \
+            --bin connectome-cli -- inspect data/compiled/male-cns-v1.0
+          python - <<'PY'
+          import json
+          import numpy as np
+          from pathlib import Path
+          p=Path("data/compiled/male-cns-v1.0")
+          m=json.loads((p/"manifest.json").read_text())
+          assert m["dataset_id"]=="male-cns-v1.0-2026"
+          assert m["node_count"]>160_000
+          assert m["edge_count"]>1_000_000
+          assert m["node_scope"]=="annotation-body-ids-plus-edge-endpoints"
+          offsets=np.memmap(p/"offsets.u64",dtype="<u8",mode="r")
+          assert len(offsets)==m["node_count"]+1
+          assert offsets[-1]==m["edge_count"]
+          nodes=np.memmap(p/"nodes.u64",dtype="<u8",mode="r")
+          assert np.all(nodes[1:]>nodes[:-1])
+          print("VERIFIED REAL complete Male CNS graph:",m["node_count"],"body IDs;",m["edge_count"],"directed edge records")
+          PY
+      - name: Record exact source hashes, graph hash, and import limitations
+        run: |
+          cp /tmp/malecns-2026/input-sha256.txt data/compiled/male-cns-v1.0/input-sha256.txt
+          sha256sum data/compiled/male-cns-v1.0/{nodes.u64,offsets.u64,targets.u32,weights.f32,manifest.json} \
+            > data/compiled/male-cns-v1.0/compiled-sha256.txt
+          cp /tmp/malecns-2026/neurotransmitters.feather \
+            data/compiled/male-cns-v1.0/official-neurotransmitters.feather
+          cp /tmp/malecns-2026/annotations.feather \
+            data/compiled/male-cns-v1.0/official-annotations.feather
+          printf '%s\n' \
+            'These are official anatomical synapse counts and predicted NT tables, not' \
+            'a validated neuronal activity simulator. Full CNS input includes' \
+            'non-neuronal body segments; filter and classify only with original annotations.' \
+            > data/compiled/male-cns-v1.0/SCIENTIFIC-LIMITATIONS.txt
+          du -h data/compiled/male-cns-v1.0/*
+      - name: Archive real complete graph, not synthetic fixture
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          command -v zstd || (sudo apt-get update -qq && sudo apt-get install -y zstd)
+          tar -I 'zstd -3 -T0' -cf /tmp/male-cns-v1.0-complete-csr.tar.zst \
+            -C data/compiled male-cns-v1.0
+          sha256sum /tmp/male-cns-v1.0-complete-csr.tar.zst > /tmp/male-cns-v1.0-complete-csr.tar.zst.sha256
+          du -h /tmp/male-cns-v1.0-complete-csr.tar.zst
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Male-CNS-v1.0-REAL-complete-connectome
+          path: |
+            /tmp/male-cns-v1.0-complete-csr.tar.zst
+            /tmp/male-cns-v1.0-complete-csr.tar.zst.sha256
+          retention-days: 14
+          compression-level: 0
