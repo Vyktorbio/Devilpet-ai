@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert real connectome edge tables into a read-only, memory-mapped CSR graph.
 
-Two bounded-memory passes. The published graph is not merged with graphs from
+Three bounded-memory passes using vectorized NumPy and compiled Numba scatter. The published graph is not merged with graphs from
 different specimens; use one dataset_id/version per output directory.
 Full datasets can be larger than 1 GB: run on a PC/server with enough disk.
 Requires numpy; Feather / Parquet also require pyarrow.
@@ -136,6 +136,50 @@ def iter_node_ids(path: Path, column: str, batch_size: int):
                 yield n
 
 
+def _indices(node_ids, ids):
+    """Vectorized exact lookup; fail rather than silently change graph IDs."""
+    indices = np.searchsorted(node_ids, ids)
+    if np.any(indices >= len(node_ids)):
+        raise ValueError("Source includes a body ID absent from the first pass")
+    if np.any(node_ids[indices] != ids):
+        raise ValueError("Source body IDs changed during import")
+    return indices.astype(np.int64, copy=False)
+
+
+def _scatter_jit():
+    """Compile a single fast, deterministic CSR scatter kernel.
+
+    The original Python loop over ~millions of per-batch source groups was the
+    bottleneck for the real 1.1GB official Male CNS table.
+    """
+    try:
+        from numba import njit
+    except ImportError as exc:
+        raise RuntimeError(
+            "Real full-CNS imports require numba: pip install 'numba>=0.61,<1'"
+        ) from exc
+
+    @njit(cache=True)
+    def scatter(cursor, pre_idx, post_idx, synapse_weights, targets, weights):
+        for j in range(pre_idx.size):
+            src = pre_idx[j]
+            pos = cursor[src]
+            targets[pos] = post_idx[j]
+            weights[pos] = synapse_weights[j]
+            cursor[src] = pos + 1
+
+    return scatter
+
+
+def _phase_progress(phase, processed, total):
+    print(
+        f"{phase}: {processed:,}" + (
+            f" / {total:,} edges ({processed / total * 100:.1f}%)" if total else " edges"
+        ),
+        flush=True
+    )
+
+
 def build(args):
     if args.batch_size < 10 or args.batch_size > 2_000_000:
         raise ValueError("batch-size must be 10..2,000,000")
@@ -143,87 +187,157 @@ def build(args):
     out = Path(args.out).expanduser().resolve()
     if out.exists():
         raise FileExistsError(f"Destination already exists: {out}; old graphs are immutable")
-    if not inp.is_file(): raise FileNotFoundError(inp)
+    if not inp.is_file():
+        raise FileNotFoundError(inp)
     if not args.dataset or not args.version or not args.source or not args.license:
         raise ValueError("Dataset ID, version, source and licence are mandatory")
-    out.parent.mkdir(parents=True,exist_ok=True)
-    nodes = set()
-    degrees = {}
+    if args.nodes and not Path(args.nodes).expanduser().is_file():
+        raise FileNotFoundError(args.nodes)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    input_size = inp.stat().st_size
+    input_mtime = inp.stat().st_mtime_ns
+    columns = (args.pre, args.post, args.weight, args.batch_size)
+    ids = np.empty(0, dtype=np.uint64)
     total_edges = 0
-    columns = (args.pre,args.post,args.weight,args.batch_size)
-    for pre, post, w in iter_rows(inp,*columns):
-        if not len(pre): continue
-        nodes.update(map(int,np.unique(pre)))
-        nodes.update(map(int,np.unique(post)))
-        u, counts=np.unique(pre,return_counts=True)
-        for index,count in zip(u,counts):
-            key=int(index)
-            degrees[key]=degrees.get(key,0)+int(count)
-        total_edges += len(pre)
-        if args.max_edges and total_edges>args.max_edges:
-            raise ValueError("Maximum allowed edge count exceeded; use a machine with more space")
+    report_at = 10_000_000
+
+    # Pass 1: collect the union of all referenced body IDs. Every operation
+    # runs inside compiled NumPy; no Python row-by-row or dict-by-body-ID loop.
+    for pre, post, _ in iter_rows(inp, *columns):
+        if not pre.size:
+            continue
+        ids = np.union1d(ids, np.unique(np.concatenate((pre, post))))
+        total_edges += pre.size
+        if args.max_edges and total_edges > args.max_edges:
+            raise ValueError("Maximum allowed edge count exceeded")
+        if total_edges >= report_at:
+            _phase_progress("pass 1/3: neuron IDs", total_edges, 0)
+            report_at += 10_000_000
     if args.nodes:
-        for node in iter_node_ids(Path(args.nodes).expanduser().resolve(),args.node_column,args.batch_size):
-            nodes.add(node)
-    node_ids=np.array(sorted(nodes),dtype="<u8")
-    n=len(node_ids)
-    if n>=2**32: raise ValueError("This format supports fewer than 2^32 distinct neurons")
-    offsets=np.zeros(n+1,dtype="<u8")
-    for node,degree in degrees.items():
-        idx=int(np.searchsorted(node_ids,node))
-        offsets[idx+1]=degree
-    np.cumsum(offsets,out=offsets)
-    assert int(offsets[-1])==total_edges
-    tmp=Path(tempfile.mkdtemp(prefix="dcx-building-",dir=out.parent))
+        annotation_ids = np.fromiter(
+            iter_node_ids(Path(args.nodes).expanduser().resolve(),
+                          args.node_column, args.batch_size),
+            dtype=np.uint64
+        )
+        ids = np.union1d(ids, np.unique(annotation_ids))
+    n = ids.size
+    if n >= 2**32:
+        raise ValueError("CSR format supports fewer than 2^32 body IDs")
+    print(
+        f"pass 1/3 finished: {n:,} body IDs; {total_edges:,} edge records",
+        flush=True
+    )
+    if inp.stat().st_size != input_size or inp.stat().st_mtime_ns != input_mtime:
+        raise ValueError("Input source changed after first pass")
+    if total_edges > np.iinfo(np.uint64).max:
+        raise ValueError("Too many edges for CSR offset type")
+
+    # Pass 2: count outgoing degree by vectorized bincount (no dict iteration).
+    degree = np.zeros(n, dtype=np.uint64)
+    counted = 0
+    report_at = 10_000_000
+    for pre, post, _ in iter_rows(inp, *columns):
+        pre_idx = _indices(ids, pre)
+        _indices(ids, post)  # Reject changes to previously scanned body IDs.
+        degree += np.bincount(pre_idx, minlength=n).astype(np.uint64)
+        counted += pre.size
+        if counted >= report_at:
+            _phase_progress("pass 2/3: edge counts", counted, total_edges)
+            report_at += 10_000_000
+    if counted != total_edges:
+        raise ValueError("Number of edges changed between passes")
+    offsets = np.empty(n + 1, dtype=np.uint64)
+    offsets[0] = 0
+    np.cumsum(degree, out=offsets[1:])
+    if int(offsets[-1]) != total_edges:
+        raise ValueError("CSR offsets do not match the number of original edges")
+    del degree
+
+    tmp = Path(tempfile.mkdtemp(prefix="dcx-building-", dir=out.parent))
     try:
-        node_ids.tofile(tmp/"nodes.u64")
-        offsets.tofile(tmp/"offsets.u64")
-        # memmap creates bounded virtual-memory views without loading all edges.
+        ids.astype("<u8", copy=False).tofile(tmp / "nodes.u64")
+        offsets.astype("<u8", copy=False).tofile(tmp / "offsets.u64")
+
+        # Use disk-backed output even when the source file exceeds RAM.
         if total_edges:
-            targets=np.memmap(tmp/"targets.u32",dtype="<u4",mode="w+",shape=(total_edges,))
-            weights=np.memmap(tmp/"weights.f32",dtype="<f4",mode="w+",shape=(total_edges,))
+            targets = np.memmap(
+                tmp / "targets.u32", dtype="<u4", mode="w+", shape=(total_edges,)
+            )
+            weights = np.memmap(
+                tmp / "weights.f32", dtype="<f4", mode="w+", shape=(total_edges,)
+            )
         else:
-            (tmp/"targets.u32").write_bytes(b"")
-            (tmp/"weights.f32").write_bytes(b"")
-            targets=weights=None
-        cursor=offsets[:-1].copy()
-        for pre,post,w in iter_rows(inp,*columns):
-            if not len(pre):continue
-            p=np.searchsorted(node_ids,pre).astype(np.uint32)
-            q=np.searchsorted(node_ids,post).astype(np.uint32)
-            if not np.array_equal(node_ids[p],pre) or not np.array_equal(node_ids[q],post):
-                raise AssertionError("Neuron index conversion changed between passes")
-            order=np.argsort(p,kind="stable")
-            sorted_p=p[order]; sorted_q=q[order]; sorted_w=w[order]
-            unique,starts,counts=np.unique(sorted_p,return_index=True,return_counts=True)
-            for key,start,count in zip(unique,starts,counts):
-                k=int(key);start=int(start);count=int(count)
-                pos=int(cursor[k]);end=pos+count
-                targets[pos:end]=sorted_q[start:start+count]
-                weights[pos:end]=sorted_w[start:start+count]
-                cursor[k]=end
-        if not np.array_equal(cursor,offsets[1:]):
-            raise AssertionError("CSR positions do not match expected degree counts")
+            (tmp / "targets.u32").write_bytes(b"")
+            (tmp / "weights.f32").write_bytes(b"")
+            targets = weights = None
+
+        # Pass 3: only this compiled Numba loop touches individual edge
+        # records. The order of edges *within each source ID* is preserved.
+        cursor = offsets[:-1].copy()
+        scatter = _scatter_jit() if total_edges else None
+        inserted = 0
+        report_at = 10_000_000
+        for pre, post, w in iter_rows(inp, *columns):
+            pre_idx = _indices(ids, pre)
+            post_idx = _indices(ids, post)
+            scatter(cursor, pre_idx, post_idx, w, targets, weights)
+            inserted += pre.size
+            if inserted >= report_at:
+                _phase_progress("pass 3/3: edge scatter", inserted, total_edges)
+                report_at += 10_000_000
+        if inserted != total_edges or not np.array_equal(cursor, offsets[1:]):
+            raise ValueError("Input changed or edge scatter positions did not match")
+        if inp.stat().st_size != input_size or inp.stat().st_mtime_ns != input_mtime:
+            raise ValueError("Input source changed during conversion")
         if targets is not None:
-            targets.flush();weights.flush()
-            del targets,weights
-        meta={
-            "format":FORMAT,"dataset_id":args.dataset,"version":args.version,
-            "source":args.source,"license":args.license,
-            "node_count":n,"edge_count":total_edges,
-            "node_scope":"annotation-body-ids-plus-edge-endpoints" if args.nodes else "edge-endpoints-only",
-            "edge_semantics":"synapse_count",
-            "processing":"Two-pass directed adjacency import; no dropped edges or additional weight threshold. Duplicate records preserved; positive synapse counts converted to float32. Body segments are not automatically classified as neurons; no neurotransmitter signs inferred.",
-            "source_filename":inp.name,
-            "node_source_filename":Path(args.nodes).name if args.nodes else None,
-            "input_columns":{"pre":args.pre,"post":args.post,"weight":args.weight}
+            targets.flush()
+            weights.flush()
+            del targets, weights
+
+        meta = {
+            "format": FORMAT,
+            "dataset_id": args.dataset,
+            "version": args.version,
+            "source": args.source,
+            "license": args.license,
+            "node_count": int(n),
+            "edge_count": int(total_edges),
+            "node_scope": (
+                "annotation-body-ids-plus-edge-endpoints" if args.nodes
+                else "edge-endpoints-only"
+            ),
+            "edge_semantics": "synapse_count",
+            "processing": (
+                "Three-pass streaming NumPy/Numba CSR, all source records "
+                "preserved without new filters, edge order preserved within "
+                "source body ID, count weights stored as float32, no "
+                "transmitter signs or physiological parameters inferred."
+            ),
+            "source_filename": inp.name,
+            "node_source_filename": Path(args.nodes).name if args.nodes else None,
+            "input_columns": {
+                "pre": args.pre, "post": args.post, "weight": args.weight
+            }
         }
-        (tmp/"manifest.json").write_text(json.dumps(meta,indent=2)+"\n",encoding="utf8")
-        os.replace(tmp,out)
-        print(f"Created {out}: {n:,} neurons, {total_edges:,} edge records")
-        print("No biological neural activity inferred; this is a structural CSR graph.")
+        (tmp / "manifest.json").write_text(
+            json.dumps(meta, indent=2) + "\n", encoding="utf8"
+        )
+        # All output is complete before it becomes visible as a dataset.
+        os.replace(tmp, out)
+        print(
+            f"Created {out}: {n:,} body IDs, {total_edges:,} directed edge records",
+            flush=True
+        )
+        print(
+            "This is an anatomical graph, NOT a validated full-brain simulator.",
+            flush=True
+        )
     except BaseException:
-        shutil.rmtree(tmp,ignore_errors=True)
+        # Close memory maps explicitly before removal (Windows compatibility).
+        if targets is not None:
+            del targets, weights
+        shutil.rmtree(tmp, ignore_errors=True)
         raise
 
 
