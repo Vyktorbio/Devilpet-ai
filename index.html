@@ -915,8 +915,23 @@ function ballAvailable(){return habitatActive()||activeScenario==='ground';}
 function activeTargets(){return habitatActive()?ZONES:scenarioWorld.getTargets();}
 function updateSceneProgress(){document.getElementById('scene-progress').textContent=scenarioWorld.summary();}
 function applyScenario(mode){
+ const previousScenario=activeScenario;
  activeScenario=scenarioWorld.setMode(mode);
  const home=habitatActive();
+ if(activeScenario==='ground'&&previousScenario!=='ground'){
+   ballState={x:0,z:-12,vx:0,vz:0};
+   ballMesh.position.set(ballState.x,BALL_R,ballState.z);
+ }
+ if(!home){
+   placeMode=activeScenario==='ground'?'ball':'none';
+ }else if(placeMode==='none'){
+   placeMode='nectar';
+ }
+ document.querySelectorAll('.place-btn').forEach(btn=>{
+   const enabled=home||(activeScenario==='ground'&&btn.dataset.place==='ball');
+   btn.disabled=!enabled;
+   btn.classList.toggle('active',enabled&&btn.dataset.place===placeMode);
+ });
  cemeteryProps.visible=home;
  mazeEnabled=activeScenario==='maze';
  mazeGroup.visible=mazeEnabled;
@@ -1747,6 +1762,8 @@ const hitPt = new THREE.Vector3();
 let dragging = false, prevX = 0, prevY = 0, downX = 0, downY = 0;
 
 function handleViewportClick(clientX, clientY) {
+  // Only the rolling ball may be placed in the ground circuit.
+  if(!habitatActive()&&!(activeScenario==='ground'&&placeMode==='ball'))return;
   const rect = renderer.domElement.getBoundingClientRect();
   pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
   pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
