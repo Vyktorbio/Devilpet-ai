@@ -19,6 +19,7 @@
     '<p style="font-size:12px;color:var(--muted)">Análises descritivas do comportamento artificial. Não são evidência isolada de memória, aprendizagem ou consciência.</p>'+
     '<h3 style="font-size:13px">Cadeias de Markov: transição de estados</h3>'+
     '<p style="font-size:11px;color:var(--muted)">P(i→j) = N(i→j) / total de pares saindo de i. Inclui permanecer no mesmo estado. Observações a aproximadamente cada 2 segundos, excluindo períodos com comandos ativos e 5 segundos após intervenções.</p>'+
+    '<p id="eth-tier-note" style="font-size:12px;color:var(--muted)"></p>'+ 
     '<p id="eth-markov-note" style="font-size:12px;color:var(--muted)"></p>'+
     '<ul id="eth-markov-list" style="font-size:12px;line-height:1.7;padding-left:20px"></ul>'+
     '<h3 style="font-size:13px">MSD: deslocamento quadrático médio</h3>'+
@@ -83,7 +84,13 @@
     let diary;
     try{diary=snapshot();}catch(e){return;}
     const day=stats.localDay(new Date());
-    const pairs=sampleTransitions(diary.samples||[],day);
+    const samples=diary.samples||[];
+    const currentTier=samples.length?samples[samples.length-1][9]:null;
+    const tierSamples=currentTier?samples.filter(s=>s[9]===currentTier):samples;
+    const tierNote=document.getElementById('eth-tier-note');
+    if(tierNote)tierNote.textContent='Arquitetura observada: '+(currentTier||'aguardando dados')+
+      '. Comparações por dia ainda incluem todas as arquiteturas utilizadas nesse dia.';
+    const pairs=sampleTransitions(tierSamples,day);
     const note=document.getElementById('eth-markov-note');
     if(note)note.textContent=pairs.n<20
       ?'Amostra pequena: '+pairs.n+' pares elegíveis. Aguardando pelo menos 20 observações consecutivas.'
@@ -98,7 +105,7 @@
         ': '+(100*v.probability).toFixed(1)+'% ('+v.n+'/'+pairs.totals[i]+')'));
     }
     putList('eth-markov-list',transitions,'Ainda não há dados de transição suficientes.');
-    const points=stats.msd(diary.samples||[],day,[1,2,4,8]).filter(v=>v.pairs>=3);
+    const points=stats.msd(tierSamples,day,[1,2,4,8]).filter(v=>v.pairs>=3);
     putList('eth-msd-list',points.map(v=>'τ = '+v.lagSeconds.toFixed(1)+' s: MSD = '+
       v.mean.toFixed(2)+' unidades² (n = '+v.pairs+' pares)'),
       'São necessários pelo menos três pares contínuos de posições para cada intervalo.');
