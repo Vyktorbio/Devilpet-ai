@@ -23,10 +23,10 @@ impl Tier {
     }
     pub fn parameters(self) -> TierParameters {
         match self {
-            Self::Drosophila => TierParameters { n_kc: 48, n_mbon: 2, fan_in: 4, apl_gain: .35, rec_gain: .05 },
-            Self::Expanded => TierParameters { n_kc: 160, n_mbon: 4, fan_in: 3, apl_gain: .55, rec_gain: .14 },
-            Self::Bee => TierParameters { n_kc: 420, n_mbon: 6, fan_in: 3, apl_gain: .72, rec_gain: .24 },
-            Self::Super => TierParameters { n_kc: 1000, n_mbon: 8, fan_in: 3, apl_gain: .84, rec_gain: .36 },
+            Self::Drosophila => TierParameters { n_kc: 48, n_mbon: 2, fan_in: 4, apl_gain: 0.35, rec_gain: 0.05 },
+            Self::Expanded => TierParameters { n_kc: 160, n_mbon: 4, fan_in: 3, apl_gain: 0.55, rec_gain: 0.14 },
+            Self::Bee => TierParameters { n_kc: 420, n_mbon: 6, fan_in: 3, apl_gain: 0.72, rec_gain: 0.24 },
+            Self::Super => TierParameters { n_kc: 1000, n_mbon: 8, fan_in: 3, apl_gain: 0.84, rec_gain: 0.36 },
         }
     }
 }
@@ -164,15 +164,15 @@ impl ArchitecturalFlyBrain {
         let mut dn_spikes = 0u32;
         let mut sens_prob = [0.; 30];
         for g in 0..5 {
-            self.working_mem[g] = self.working_mem[g] * .92 + cue_inputs[g] * .08;
+            self.working_mem[g] = self.working_mem[g] * 0.92 + cue_inputs[g] * 0.08;
             let eff_cue = (cue_inputs[g] + self.cfg.rec_gain * self.working_mem[g]).min(1.);
-            let p = eff_cue * .14;
+            let p = eff_cue * 0.14;
             for i in 0..6 { sens_prob[g * 6 + i] = p; }
         }
         let cons_frac = if consolidate > 0. {
             -(-consolidate * self.dt_ms / 550.).exp_m1()
         } else { 0. };
-        let lr = .42;
+        let lr = 0.42;
         for _ in 0..steps {
             let mut sens_spk = [0u8; 30];
             for i in 0..30 {
@@ -184,7 +184,7 @@ impl ArchitecturalFlyBrain {
                 for src in &self.kc_pre[k] {
                     inp += sens_spk[*src] as f64 * 3.8;
                 }
-                self.kc_v[k] = self.ev * self.kc_v[k] + inp + (self.rng.next_f64() - .5) * .22;
+                self.kc_v[k] = self.ev * self.kc_v[k] + inp + (self.rng.next_f64() - 0.5) * 0.22;
                 kc_sum_v += self.kc_v[k].max(0.);
             }
             let apl_inh = self.cfg.apl_gain * (kc_sum_v / self.n_kc() as f64);
@@ -203,17 +203,17 @@ impl ArchitecturalFlyBrain {
                     let f_avd = self.get_factor(e_avd);
                     mbon_approach[cue] += f_app;
                     mbon_avoid[cue] += f_avd;
-                    self.elig[e_app] = (self.elig[e_app] + .65).min(1.);
-                    self.elig[e_avd] = (self.elig[e_avd] + .65).min(1.);
+                    self.elig[e_app] = (self.elig[e_app] + 0.65).min(1.);
+                    self.elig[e_avd] = (self.elig[e_avd] + 0.65).min(1.);
                 }
                 self.short_w[e_app] *= self.es;
                 self.short_w[e_avd] *= self.es;
                 if learn && modulation != 0. {
                     let delta = lr * modulation * self.elig[e_app] * (self.dt_ms / 250.);
                     self.short_w[e_app] = (self.short_w[e_app] + delta)
-                        .max(-.9 - self.long_w[e_app]).min(2. - self.long_w[e_app]);
+                        .max(-0.9 - self.long_w[e_app]).min(2. - self.long_w[e_app]);
                     self.short_w[e_avd] = (self.short_w[e_avd] - delta)
-                        .max(-.9 - self.long_w[e_avd]).min(2. - self.long_w[e_avd]);
+                        .max(-0.9 - self.long_w[e_avd]).min(2. - self.long_w[e_avd]);
                 }
                 if cons_frac > 0. {
                     let tr_a = self.short_w[e_app] * cons_frac;
@@ -227,10 +227,10 @@ impl ArchitecturalFlyBrain {
             active_kc_sum += fired_count;
             self.tick += 1;
         }
-        let norm = ((self.n_kc() as f64 / 5.) * .45).max(1.);
+        let norm = ((self.n_kc() as f64 / 5.) * 0.45).max(1.);
         for g in 0..5 {
             self.mbon_rate[g] = (mbon_approach[g] - mbon_avoid[g]) / norm;
-            dn_spikes += ((mbon_approach[g] + mbon_avoid[g]) * .22).round() as u32;
+            dn_spikes += ((mbon_approach[g] + mbon_avoid[g]) * 0.22).round() as u32;
         }
         self.last_active_kc = active_kc_sum as f64 / steps as f64;
         Ok(BrainOutput {
@@ -242,7 +242,7 @@ impl ArchitecturalFlyBrain {
         let mut max_elig: f64 = 0.;
         let (mut sum_short, mut sum_long) = (0., 0.);
         let (mut c_app, mut a_app, mut r_app, mut r_avd, mut s_app) = (0.,0.,0.,0.,0.);
-        let (mut c_n, mut a_n, mut r_n, mut s_n) = (0.,0.,0.,0.);
+        let (mut c_n, mut a_n, mut r_n, mut s_n): (usize, usize, usize, usize) = (0, 0, 0, 0);
         for k in 0..self.n_kc() {
             let e_app = k * 2;
             let e_avd = e_app + 1;
@@ -316,7 +316,7 @@ impl ArchitecturalFlyBrain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn cues() -> [f64;5] { [.75,.05,.1,.4,.5] }
+    fn cues() -> [f64;5] { [0.75,0.05,0.1,0.4,0.5] }
 
     #[test]
     fn architecture_includes_all_reference_tiers() {
@@ -331,8 +331,8 @@ mod tests {
             let mut a=ArchitecturalFlyBrain::new(tier,42);
             let mut b=ArchitecturalFlyBrain::new(tier,42);
             for step in 0..4 {
-                let r1=a.step_window(cues(),if step%2==0 {1.}else{0.},.02,true,15.).unwrap();
-                let r2=b.step_window(cues(),if step%2==0 {1.}else{0.},.02,true,15.).unwrap();
+                let r1=a.step_window(cues(),if step%2==0 {1.}else{0.},0.02,true,15.).unwrap();
+                let r2=b.step_window(cues(),if step%2==0 {1.}else{0.},0.02,true,15.).unwrap();
                 assert_eq!(serde_json::to_value(&r1).unwrap(),serde_json::to_value(&r2).unwrap());
                 assert_eq!(a.js_checkpoint(),b.js_checkpoint());
             }
@@ -341,20 +341,20 @@ mod tests {
     #[test]
     fn full_snapshot_replays_future_events() {
         let mut a=ArchitecturalFlyBrain::new(Tier::Drosophila,42);
-        a.step_window(cues(),1.,.05,true,15.).unwrap();
+        a.step_window(cues(),1.,0.05,true,15.).unwrap();
         let snap=a.full_snapshot();
         let mut b=ArchitecturalFlyBrain::new(Tier::Drosophila,999);
         b.restore_full_snapshot(&snap).unwrap();
         for _ in 0..4 {
-            let x=a.step_window(cues(),-.5,.5,true,15.).unwrap();
-            let y=b.step_window(cues(),-.5,.5,true,15.).unwrap();
+            let x=a.step_window(cues(),-0.5,0.5,true,15.).unwrap();
+            let y=b.step_window(cues(),-0.5,0.5,true,15.).unwrap();
             assert_eq!(serde_json::to_value(&x).unwrap(),serde_json::to_value(&y).unwrap());
         }
     }
     #[test]
     fn browser_checkpoint_roundtrip() {
         let mut a=ArchitecturalFlyBrain::new(Tier::Bee,42);
-        a.step_window(cues(),1.,.02,true,15.).unwrap();
+        a.step_window(cues(),1.,0.02,true,15.).unwrap();
         let x=a.js_checkpoint();
         let json=serde_json::to_string(&x).unwrap();
         assert!(json.contains(r#""tierKey":"bee""#));
