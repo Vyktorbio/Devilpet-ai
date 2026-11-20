@@ -13,6 +13,7 @@ assert.equal(channels.taste_food,1);
 assert.equal(channels.internal_state,.35);
 const health={
  schema:'devilpet-cns-server-v1',
+ backend:'python',
  status:'graph_loaded_ports_reviewed',
  dataset_id:'male-cns-v1.0-2026',dataset_version:'v1.0',
  dataset_source:'https://male-cns.janelia.org/download/',
