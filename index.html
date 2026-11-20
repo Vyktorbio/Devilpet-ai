@@ -322,6 +322,7 @@
   }
 </style>
 <script src="./neural-engine.js?v=stable-rollback-20261120"></script>
+<script src="./fly/sensors.js"></script>
 <script src="./fly/behavior.js"></script>
 </head>
 <body>
@@ -1334,14 +1335,19 @@ function stepSimulation() {
   // Central-complex-inspired heading integrator: noisy path integration.
   neuroEthology.heading=0.97*neuroEthology.heading+0.03*flyPos.angle;
 
-  // 3D Sensory cues (3 floor zones + 1 aerial sky ring + play ball)
-  const cues = { cyan: 0, amber: 0, red: 0, ball: 0, sky: 0 };
-  for (const z of ZONES) {
-    const d3 = Math.hypot(flyPos.x - z.x, flyPos.y - z.y, flyPos.z - z.z);
-    cues[z.id] = Math.max(0, 1.0 - d3 / 11.5);
-  }
-  const distBall = Math.hypot(flyPos.x - ballState.x, flyPos.y, flyPos.z - ballState.z);
-  cues.ball = Math.max(0, 1.0 - distBall / 9.0);
+  // A single organ-level sensory frame supplies the neural circuit and motor controller.
+  const nowHour=new Date();
+  const sensory=DevilPetSensors.sample({
+    radius:ARENA_RADIUS-1.2,
+    walls:mazeEnabled?MAZE_WALLS:[],
+    pillars:mazeEnabled?customPillars:[],
+    ball:ballState,
+    blood:nectarState.active?nectarState:null,
+    perches:PERCHES,zones:ZONES,fruits:HABITAT_FRUITS,
+    ambientLight:sleeping?.25:1,airflow:{x:0,z:0}
+  },flyPos,pet,{sleeping,localHour:nowHour.getHours(),localMinute:nowHour.getMinutes()});
+  const cues=sensory.cues;
+  const distBall=Math.hypot(flyPos.x-ballState.x,flyPos.y,flyPos.z-ballState.z);
 
   const modToApply = sleeping ? 0 : pendingMod;
   pendingMod = 0;
@@ -1383,12 +1389,11 @@ function stepSimulation() {
   const odorSignals=localOlfaction(flyPos);
   // Real bilateral odor channels from the EXISTING fruit environment; no target coordinates.
   const motorFrame={
-    odors:odorSignals.map((o,i)=>({...o,identity:'habitat-odor-'+i})),
-    vision:{left:0,right:0,contrast:0},
-    mechanosense:{left:0,right:0,front:Math.max(0,1-(ARENA_RADIUS-Math.max(Math.abs(flyPos.x),Math.abs(flyPos.z)))/4),contact:false},
-    taste:{food:lastFoodContact},
-    proprioception:{energy:pet.energy,rest:pet.rest,curiosity:pet.curiosity},
-    airflow:{forward:0}
+    ...sensory,
+    odors:sensory.odors.map((o,i)=>({...o,identity:'habitat-odor-'+i})),
+    // Near-field moisture is an additional sensory channel, not a world coordinate.
+    moisture:Math.max(0,1-Math.abs(Math.hypot(flyPos.x-pond.x,flyPos.z-pond.z)-pond.shore)/8),
+    proprioception:{...sensory.proprioception,hydration:pet.hydration}
   };
   embodiedMotor=embodiedBehavior.step(motorFrame,{dt:.016,reward:modToApply});
     const neuroDecision=neuroEthology.choose(odorSignals,pet);
@@ -1584,7 +1589,8 @@ function stepSimulation() {
     // New sensor-driven autonomy steers the ORIGINAL DevilPet mesh, not a second fly.
     // Preserve player commands and the existing trained neural zone responses.
     if(!callTarget.active&&!nectarState.active&&!thirsty&&embodiedMotor){
-      steer+=embodiedMotor.turn*0.12;
+      steer+=embodiedMotor.turn*0.18;
+      if(embodiedMotor.perception.obstacle>0.48)steer+=embodiedMotor.turn*0.15;
       if(embodiedMotor.mode==='avoid')steer+=0.08;
       if(embodiedMotor.mode==='rest')actionLabel='Buscando repouso';
       if(embodiedMotor.mode==='feed'&&pet.energy<0.5)actionLabel='Procurando alimento por odor';
