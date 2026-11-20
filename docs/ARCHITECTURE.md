@@ -1,41 +1,45 @@
-# DevilPet — arquitetura de execução segura
+# DevilPet — arquitetura ativa em Python
 
-A prioridade deste projeto é preservar a **mente treinada**, executar o pet no navegador e permitir experimentos reprodutíveis. Rust não deve ser usado apenas por ser Rust: ele representa o circuito computacional; JavaScript controla o mundo, a interface e a persistência.
+O controle do corpo virtual e do mundo 3D permanece separado da
+reconstrução anatômica. Não se deve afirmar que a conectividade sozinha
+reproduz a fisiologia de todos os neurônios.
 
-## Responsabilidades atuais
+## Componentes
 
-| Camada | Implementação | Responsabilidade |
-| --- | --- | --- |
-| Domínio / referência | `neural-engine.js` | Modelo esparso KC/MBON e circuito olfativo original. Não é reescrito por mudanças na interface. |
-| Domínio / alto desempenho | `rust/devilpet_brain/src/{sparse,odor,rng}.rs` | Tradução do mesmo modelo e RNG, sem cenas nem DOM. |
-| Adaptador WebAssembly | `rust/devilpet_brain/src/wasm.rs` | API do motor Rust consumida pelo navegador, inclusive RNG de movimento. |
-| Orquestração | `wasm-activate.js` | Validação, ativação explícita, migração atômica dos dois circuitos, recuperação e diagnóstico. |
-| Ambiente e interface | `index.html` | Física do corpo, estímulos, câmera 3D, controles, ritmo metabólico e integração inicial. |
-| Observação | `ethology*.js` | Diário e gráficos a partir de dados simulados, sem alterar os pesos neurais. |
-| Persistência | `drosophila_3d_trainer_v1` | Checkpoint legado (compatível) e estado opcional completo do Rust. |
-| Distribuição | GitHub Actions + Pages | Recompila, testa num navegador, inclui Three.js local e publica JS+WASM. |
+| Camada | Implementação | Função |
+|---|---|---|
+| Mundo 3D | environment/world3d.js e habitat3d.js | Three.js e objetos |
+| Percepção | fly/sensors.js | Odores, visão, obstáculos, propriocepção |
+| Agente | fly/agent.js | Interface local sensor → decisão, sem renderer |
+| Cérebro local | neural-engine.js | Modelo reduzido de aprendizagem, JavaScript offline |
+| Ponte | fly/connectome-bridge.js | HTTP com servidor Python, ativação voluntária |
+| CNS completo | python/connectome_engine.py | Grafo dirigido CSR original mapeado por NumPy |
+| Serviço | python/connectome_server.py | GET /health, POST /step, localhost, CORS |
+| Pesquisa | python/connectome_cli.py | Inspeção de IDs, vizinhança e pulso |
+| Importador | connectomes/import_graph.py | CSV/Feather/Parquet → CSR integral |
+| Publicação | .github/workflows/python-pages.yml | HTML/JS/Three.js sem compilação Rust |
+| Testes | python/tests + fly/python-browser-smoke.mjs | Proveniência, neuronal/HTTP e browser |
 
-## Contratos
+## Integridade
 
-1. O site **inicia em JavaScript**, sem depender de WebAssembly, de CDN ou do carregamento do Rust.
-2. Rust é **opcional**. O botão de ativação só é habilitado depois de autoteste da resposta neuronal, peso, RNG, reforço olfativo e checkpoint. Nenhum teste toca na mosca treinada.
-3. Os dois circuitos são migrados em conjunto; se a conversão falhar, ambos permanecem como estavam.
-4. Se houver erro do Rust durante a simulação, a ponte tenta recuperar o estado no JavaScript. Em falhas irrecuperáveis, a simulação pausa sem zerar a memória.
-5. `neural-engine.js` é a referência para os testes de equivalência; Rust deve manter as mesmas regras antes de ativar otimizações.
-6. O backup atual continua legível. O estado completo Rust é campo opcional; exportações antigas continuam funcionais.
-7. O gerador de números aleatórios tem **o mesmo estado e a mesma função `next()`** nos dois motores. O mundo 3D e o cérebro compartilham esse fluxo na simulação atual.
-8. Não alegar que o modelo representa conectoma completo, cordão nervoso ventral ou consciência. É um circuito inspirado em insetos.
+O neural-engine.js original e o formato de backup do pet não foram
+modificados. Checkpoints antigos que contêm rustState também continuam
+legíveis por suas chaves shortW e longW. Nenhum arquivo de pesos é apagado.
 
-## Pipeline obrigatório para publicação
+Rust não é mais carregado no navegador, utilizado pelo pipeline ativo,
+nem necessário para consultar o CNS: os arquivos rust/ permanecem apenas
+como histórico de implementação.
 
-- `cargo test --all-targets`: regras neurais, reprodução determinística, snapshots e equivalência com o JavaScript.
-- Teste do módulo WebAssembly compilado, executando as duas redes, reforços e restauração.
-- `runtime-smoke.mjs`: passagem de JS para Rust, compatibilidade de pesos, `rng.next()`, recuperação e retorno para JS.
-- `browser-smoke.mjs`: **Chromium real**, cenário 3D renderizando, JS como padrão, Rust ativado, simulação avançando, retorno seguro a JS.
-- O deploy do Pages só ocorre quando todas as etapas são aprovadas.
+## Dados de 2026 e limites
 
-## Próxima refatoração sem quebrar a mosca
+Os conectomas de macho (Male CNS) e fêmea (BANC) são indivíduos separados,
+cada um com sua versão e IDs originais. Não combinar sinapses.
 
-A cena, a física e a UI ainda compartilham um script extenso em `index.html`. A migração futura deve extrair *somente* o código de apresentação para módulos separados (`world`, `input`, `render`, `persistence`), um de cada vez, com testes de regressão. Essa refatoração estrutural não é justificativa para mudar sinapses nem reiniciar a linhagem.
+O Python verifica o dataset e as portas revisadas antes de aceitar sensores
+e emitir comandos motores. O método atual é uma **propagação matemática
+sem sinais de neurotransmissão**, não um simulador neurofisiológico completo.
+Conectoma anatômico integral não significa que a mosca já tenha um
+comportamento funcional equivalente ao biológico.
 
-O cronotipo baseado em horário real e o arquivo «genoma + mente portátil» existem parcialmente na crate Rust, mas **ainda não estão ligados ao pet web**; precisam de integração de produto, testes de sono e migração de dados antes de serem expostos.
+O GitHub Pages não executa Python. O CNS real precisa rodar em computador
+ou servidor com dados científicos e acesso autenticado via HTTPS em uso remoto.
