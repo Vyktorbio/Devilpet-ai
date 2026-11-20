@@ -345,14 +345,6 @@
     <div class="topbar">
       <div class="btn-group">
         <button type="button" id="btn-play" class="active">Pausar</button>
-        <label class="scene-picker" for="scenario-select">Cenário
-<select id="scenario-select" aria-label="Selecionar cenário de treino">
-<option value="cemetery">Cemitério</option>
-<option value="maze">Labirinto</option>
-<option value="ground">Circuito no chão</option>
-<option value="air">Circuito aéreo</option>
-<option value="clean">Arena limpa</option>
-</select></label>
         <button type="button" id="btn-sleep" class="btn-sleep">Descansar (LTM)</button>
         <button type="button" id="btn-cam">Câmera: Longe</button>
         <button type="button" id="btn-mute">Som: Ligado</button>
@@ -370,6 +362,8 @@
         <span style="font-size: 11.5px; color: var(--muted); padding: 0 6px;">Clique no 3D:</span>
         <button type="button" class="place-btn active" data-place="nectar">Sangue</button>
         <button type="button" class="place-btn" data-place="ball">Bolinha</button><button type="button" class="place-btn" data-place="pond">Lago</button>
+        <button type="button" class="place-btn" data-place="forest">Floresta</button>
+        <button type="button" class="place-btn" data-place="shelter">Caixa-refúgio</button>
         <button type="button" class="place-btn" data-place="pillar">Obstáculo</button>
         <button type="button" class="place-btn" data-place="call">Chamar Pet</button>
         <button type="button" id="btn-clear-custom">Limpar Itens</button>
@@ -920,16 +914,65 @@ pondWater.position.y=0.14;pondGroup.add(pondWater);
 pondGroup.visible=false;scene.add(pondGroup);
 let pondState={active:false,x:0,z:0};
 let waterVisits=0,waterDrinkingSeconds=0,waterContact=false;
+// Scenery-only modules. No steering, reward, punishment or neural reset.
+const habitatModules=new THREE.Group();scene.add(habitatModules);
+let forestItems=[],shelterItems=[];
+let shelterVisits=0,shelterSeconds=0,shelterContact=false;
+function createForestPatch(x,z){
+  const group=new THREE.Group();group.position.set(x,0,z);
+  const bark=new THREE.MeshStandardMaterial({color:0x66503b,roughness:1});
+  const leaf=new THREE.MeshStandardMaterial({color:0x244d39,roughness:0.96,side:THREE.DoubleSide});
+  const shrub=new THREE.MeshStandardMaterial({color:0x365c3b,roughness:1});
+  for(const [dx,dz,h] of [[-1.35,-0.8,3.2],[1.1,0.5,2.65],[-0.2,1.4,2.15]]){
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.2,h,8),bark);
+    trunk.position.set(dx,h/2,dz);group.add(trunk);
+    const canopy=new THREE.Mesh(new THREE.ConeGeometry(0.88,h*0.72,9),leaf);
+    canopy.position.set(dx,h+0.24,dz);group.add(canopy);
+  }
+  for(const [dx,dz] of [[0.6,-1.1],[-1.5,1.1],[1.7,-0.9]]){
+    const bush=new THREE.Mesh(new THREE.SphereGeometry(0.55,10,8),shrub);
+    bush.scale.y=0.65;bush.position.set(dx,0.38,dz);group.add(bush);
+  }
+  habitatModules.add(group);forestItems.push({x,z,mesh:group});
+}
+function createShelter(x,z){
+  // Open front, visible hollow interior. A visual refuge, not a prescribed safe target.
+  const group=new THREE.Group();group.position.set(x,0,z);
+  const wood=new THREE.MeshStandardMaterial({color:0x574636,roughness:0.96,side:THREE.DoubleSide});
+  function wall(w,h,d,px,py,pz){
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),wood);
+    mesh.position.set(px,py,pz);group.add(mesh);
+  }
+  wall(2.6,0.17,2.5,0,1.9,0);
+  wall(0.16,1.9,2.5,-1.22,0.95,0);
+  wall(0.16,1.9,2.5,1.22,0.95,0);
+  wall(2.6,1.9,0.16,0,0.95,1.18);
+  // Entrance faces negative Z; no front wall or automatic attraction.
+  habitatModules.add(group);shelterItems.push({x,z,mesh:group});
+}
+function clearHabitatModules(){
+  for(const item of [...forestItems,...shelterItems])habitatModules.remove(item.mesh);
+  forestItems=[];shelterItems=[];shelterContact=false;
+}
+function restoreHabitatModules(data){
+  clearHabitatModules();
+  if(!data)return;
+  for(const p of (Array.isArray(data.forest)?data.forest:[]).slice(0,6))
+    if(Number.isFinite(p.x)&&Number.isFinite(p.z))createForestPatch(p.x,p.z);
+  for(const p of (Array.isArray(data.shelters)?data.shelters:[]).slice(0,6))
+    if(Number.isFinite(p.x)&&Number.isFinite(p.z))createShelter(p.x,p.z);
+}
+
 
 // The neural engine is independent of scene rendering and geometric events.
 const scenarioWorld=new DevilPetScenarioWorld(THREE,scene);
-let activeScenario='cemetery';
+let activeScenario='clean';
 const cemeteryFloorMaterial=floor.material;
 const neutralFloorMaterial=new THREE.MeshStandardMaterial({color:0x171b25,roughness:0.93});
 function habitatActive(){return activeScenario==='cemetery'||activeScenario==='maze';}
 function ballAvailable(){return ballMesh.visible;}
 function activeTargets(){return habitatActive()?ZONES:scenarioWorld.getTargets();}
-function updateSceneProgress(){document.getElementById('scene-progress').textContent=scenarioWorld.summary();}
+function updateSceneProgress(){document.getElementById('scene-progress').textContent='Arena livre · monte seu ambiente com os botões acima.';}
 function applyScenario(mode){
  const previousScenario=activeScenario;
  activeScenario=scenarioWorld.setMode(mode);
@@ -960,7 +1003,7 @@ function applyScenario(mode){
  pulseRing.visible=true;
  scene.fog=cemeteryFog;
  scene.background.setHex(0x0b0918);
- document.getElementById('scenario-select').value=activeScenario;
+ // Scenery is user-built, not selected from presets.
  document.querySelector('.hud-overlay').style.display='';
  document.querySelector('.hud-bottom').style.display='';
  updateSceneProgress();
@@ -1388,6 +1431,11 @@ function stepSimulation() {
   document.getElementById('b-daily-sleep').style.width =
     Math.min(100, sleepTodaySeconds / SLEEP_DAILY_GOAL_SECONDS * 100).toFixed(1) + '%';
   pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.5+0.5*pet.hydration) * (0.55 + 0.45 * pet.bond)));
+  // Passive observation only: proximity to the open box is recorded, not rewarded.
+  const insideShelter=shelterItems.some(p=>Math.abs(flyPos.x-p.x)<1.1&&flyPos.z>p.z-1.1&&flyPos.z<p.z+1.1&&flyPos.y<1.85);
+  if(insideShelter&&!shelterContact){shelterVisits++;shelterContact=true;}
+  if(!insideShelter)shelterContact=false;
+  if(insideShelter)shelterSeconds+=metabolismDt;
   const drinking=pondState.active&&!sleeping&&Math.hypot(flyPos.x-pondState.x,flyPos.z-pondState.z)<1.38&&flyPos.y<0.55&&pet.hydration<0.98;
   if(drinking){pet.hydration=Math.min(1,pet.hydration+metabolismDt/10);waterDrinkingSeconds+=metabolismDt;if(!waterContact){waterVisits++;waterContact=true;}}
   else waterContact=false;
@@ -1802,6 +1850,14 @@ function handleViewportClick(clientX, clientY) {
     nectarGroup.visible = true;
     playTone(540, 0.12, 'sine', 0.07);
     statusLine.textContent = `Gota de sangue colocada em (${px.toFixed(1)}, ${pz.toFixed(1)}).`;
+  } else if (placeMode === 'forest') {
+    if(forestItems.length>=6){const old=forestItems.shift();habitatModules.remove(old.mesh);}
+    createForestPatch(px,pz);
+    statusLine.textContent='Bosque colocado. Apenas cenário: nenhuma preferência ou comportamento foi programado.';
+  } else if (placeMode === 'shelter') {
+    if(shelterItems.length>=6){const old=shelterItems.shift();habitatModules.remove(old.mesh);}
+    createShelter(px,pz);
+    statusLine.textContent='Caixa-refúgio colocada, com entrada aberta. Nenhuma instrução foi dada à mosca.';
   } else if (placeMode === 'pond') {
     pondState={active:true,x:px,z:pz};pondGroup.position.set(px,0,pz);pondGroup.visible=true;
     statusLine.textContent='Lago colocado. A mosca pode beber quando o encontrar.';
@@ -1909,12 +1965,6 @@ btnPlay.addEventListener('click', () => {
   btnPlay.classList.toggle('active', running);
 });
 
-document.getElementById('scenario-select').addEventListener('change',(event)=>{
-  applyScenario(event.target.value);
-  const names={cemetery:'Cemitério',maze:'Labirinto',ground:'Circuito no chão',air:'Circuito aéreo',clean:'Arena limpa'};
-  statusLine.textContent=names[activeScenario]+': cenário alterado sem reiniciar o cérebro ou apagar memórias.';
-});
-
 document.querySelectorAll('.place-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
@@ -1924,6 +1974,8 @@ document.querySelectorAll('.place-btn').forEach(btn => {
       nectar: 'Clique em qualquer ponto do chão 3D para pingar Sangue.',
       ball: 'Clique em qualquer ponto do chão 3D para posicionar a Bolinha.',
       pond: 'Clique no chão para posicionar o lago removível.',
+      forest: 'Clique no chão para colocar um pequeno bosque.',
+      shelter: 'Clique no chão para colocar uma caixa-refúgio aberta.',
       pillar: 'Clique em qualquer ponto do chão 3D para construir um Obstáculo.',
       call: 'Clique em qualquer ponto do chão 3D para chamar seu pet até lá.'
     };
@@ -1933,6 +1985,7 @@ document.querySelectorAll('.place-btn').forEach(btn => {
 
 document.getElementById('btn-clear-custom').addEventListener('click', () => {
    pondState.active=false;pondGroup.visible=false;
+   clearHabitatModules();
   for (const p of customPillars) customGroup.remove(p.mesh);
   customPillars = [];
   nectarState.active = false;
@@ -2018,8 +2071,9 @@ document.getElementById('btn-save').addEventListener('click', () => {
       rng: brain.rng.getState(),
       shortW: Array.from(brain.shortW),
       longW: Array.from(brain.longW),
-      pet, pondState, waterVisits, waterDrinkingSeconds, score, streak, missionIdx, missionHits, flyPos,
-      scenario:activeScenario, scenarioStats:scenarioWorld.snapshot(),
+      pet, pondState, waterVisits, waterDrinkingSeconds,
+       habitatLayout:{forest:forestItems.map(p=>({x:p.x,z:p.z})),shelters:shelterItems.map(p=>({x:p.x,z:p.z}))},shelterVisits,shelterSeconds, score, streak, missionIdx, missionHits, flyPos,
+      scenario:'clean', scenarioStats:scenarioWorld.snapshot(),
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
       neuroEthology:neuroEthology.snapshot()
     };
@@ -2046,6 +2100,9 @@ document.getElementById('btn-load').addEventListener('click', () => {
      if(d.pondState){pondState=d.pondState;pondGroup.visible=!!pondState.active;pondGroup.position.set(pondState.x||0,0,pondState.z||0);}
      waterVisits=Number.isFinite(d.waterVisits)?d.waterVisits:0;
      waterDrinkingSeconds=Number.isFinite(d.waterDrinkingSeconds)?d.waterDrinkingSeconds:0;
+     restoreHabitatModules(d.habitatLayout);
+     shelterVisits=Number.isFinite(d.shelterVisits)?d.shelterVisits:0;
+     shelterSeconds=Number.isFinite(d.shelterSeconds)?d.shelterSeconds:0;
     sleeping = !!d.sleeping;
     sleepElapsedSeconds = Number.isFinite(d.sleepElapsedSeconds) ? Math.max(0,d.sleepElapsedSeconds) : 0;
     sleepStartRest = Number.isFinite(d.sleepStartRest) ? d.sleepStartRest : pet.rest;
@@ -2061,7 +2118,7 @@ document.getElementById('btn-load').addEventListener('click', () => {
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;
     scenarioWorld.restore(d.scenarioStats);
-    applyScenario(d.scenario||'cemetery');
+    applyScenario('clean');
     document.querySelectorAll('.tier-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === brain.tierKey));
     statusLine.textContent = `Pet "${document.getElementById('pet-name').value}" restaurado (${brain.cfg.name}).`;
   } catch (e) {
@@ -2077,7 +2134,7 @@ window.addEventListener('keydown', (e) => {
 
 
 // Keep the original cemetery unless restoring a specific saved scenario.
-applyScenario('cemetery');
+applyScenario('clean');
 
 // The optional neural self-tests remain available as pure functions in the engine,
 // but the intrusive standalone experimental panel has been removed.
