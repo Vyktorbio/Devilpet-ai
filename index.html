@@ -1497,9 +1497,9 @@ function stepSimulation() {
   }
 
   function resolveMazeCollision(obj, rad, bounceVel = false) {
-    if (!mazeEnabled) return false;
-    let hit = false;
-    for (const w of MAZE_WALLS) {
+    if(!mazeEnabled&&activeScenario!=='ground'&&(!habitatActive()||!customPillars.length))return false;
+    let hit=false;
+    for (const w of (mazeEnabled?MAZE_WALLS:[])) {
       const hx = w.w * 0.5 + rad;
       const hz = w.d * 0.5 + rad;
       const dx = obj.x - w.x;
@@ -1517,7 +1517,7 @@ function stepSimulation() {
         hit = true;
       }
     }
-    for (const p of customPillars) {
+    for (const p of (habitatActive()?customPillars:[])) {
       const dx = obj.x - p.x;
       const dz = obj.z - p.z;
       const dist = Math.hypot(dx, dz);
@@ -1535,10 +1535,13 @@ function stepSimulation() {
         hit = true;
       }
     }
+    if(activeScenario==='ground')hit=scenarioWorld.collideBall(obj,rad)||hit;
     return hit;
   }
 
-  // Ball physics with maze wall collisions
+  // Keep the ball physically inactive in the flight and empty arenas.
+  const previousBall={x:ballState.x,z:ballState.z};
+  if(ballAvailable()){
   ballState.x += ballState.vx;
   ballState.z += ballState.vz;
   ballState.vx *= 0.94;
@@ -1555,7 +1558,13 @@ function stepSimulation() {
   ballMesh.position.set(ballState.x, BALL_R, ballState.z);
   ballMesh.rotation.x += ballState.vz * 1.3;
   ballMesh.rotation.z -= ballState.vx * 1.3;
+  scenarioWorld.observeBall(previousBall,ballState,(arch,count)=>{
+    statusLine.textContent='Bolinha atravessou '+arch.label+' ('+count+' passagens).';
+    updateSceneProgress();
+  });
+  }
 
+  const previousFly={x:flyPos.x,y:flyPos.y,z:flyPos.z};
   // Move fly in full 3D (walking, flying, hovering, or perching on leaves)
   const perchedOn = (!feedingNow && !sleeping && flightBoostTimer <= 0) ? detectPerch() : null;
   const investigatingZone = (!feedingNow && !sleeping && settledZone !== null);
@@ -1634,6 +1643,10 @@ function stepSimulation() {
     flyPos.vy = 0;
   }
 
+  scenarioWorld.observeFlight(previousFly,flyPos,(hoop,count)=>{
+    statusLine.textContent='Diabinha atravessou '+hoop.label+' ('+count+' passagens).';
+    updateSceneProgress();
+  });
   // Update 3D body, pitch tilt & articulations
   flyGroup.position.set(flyPos.x, flyPos.y, flyPos.z);
   flyGroup.rotation.y = -flyPos.angle;
