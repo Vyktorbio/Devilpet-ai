@@ -1,0 +1,22 @@
+# Large published connectome volumes are fetched from their original archives.
+# Never put multi-GB scientific data or credentials into the website repository.
+/data/
+**/*.feather
+**/*.parquet
+**/*.arrow
+**/*.ipc
+**/*.npy
+**/*.npz
+**/*.swc
+**/*synapses*.csv.gz
+**/*connections*.csv.gz
+**/*.u64
+**/*.u32
+**/*.f32
+**/target/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+.env
+*.token
+*.secrets
