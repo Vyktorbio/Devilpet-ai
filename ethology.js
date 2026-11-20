@@ -140,9 +140,12 @@
     setTimeout(()=>URL.revokeObjectURL(u),1000);
   }
   function backup() {
+    // Save live weights first; the previous automatic checkpoint can be up to 30 s old.
+    document.getElementById('btn-save').click();
     persist();
     let checkpoint=null;
     try {checkpoint=JSON.parse(localStorage.getItem(PET_KEY)||'null');} catch(_){}
+    if(!checkpoint){alert('Checkpoint neural indisponível. O backup foi cancelado.');return;}
     download('devilpet-backup-'+dayKey(new Date())+'.json',
       JSON.stringify({format:'devilpet-backup-v1',createdAt:new Date().toISOString(),checkpoint:checkpoint,ethology:data},null,2),
       'application/json;charset=utf-8');
@@ -258,16 +261,26 @@
     } catch(err) {alert('Não foi possível importar: '+err.message);}
     finally {e.target.value='';}
   });
+  // Passive classification only; caregiver commands never modify neural decisions.
+  let caregiverUntil=0;
+  window.DevilPetDiarySnapshot=()=>JSON.parse(JSON.stringify(data));
   // Caregiver interventions recorded distinctly from spontaneous behavior.
   [['btn-feed','Sangue oferecido'],['btn-ball','Bolinha lançada'],['btn-takeoff','Decolagem comandada'],
    ['btn-sleep','Sono controlado'],['btn-pos','PAM aplicado'],['btn-neg','PPL1 aplicado'],
    ['btn-save','Checkpoint salvo'],['btn-load','Checkpoint restaurado']]
    .forEach(([id,name])=>{
       const el=document.getElementById(id);
-      if(el)el.addEventListener('click',()=>log(name,'posição '+flyPos.x.toFixed(1)+','+flyPos.z.toFixed(1)),true);
+      if(el)el.addEventListener('click',e=>{
+        if((id==='btn-save'||id==='btn-load')&&!e.isTrusted)return; // autosave is not caregiver behavior
+        if(id!=='btn-save'&&id!=='btn-load')caregiverUntil=performance.now()+5000;
+        log(name,'posição '+flyPos.x.toFixed(1)+','+flyPos.z.toFixed(1));
+      },true);
    });
   const viewport=document.getElementById('viewport');
-  if(viewport)viewport.addEventListener('pointerup',()=>{if(placeMode==='call')log('Chamado do cuidador','comando de movimento');},false);
+  if(viewport)viewport.addEventListener('pointerup',()=>{if(placeMode==='call'){
+    caregiverUntil=performance.now()+5000;
+    log('Chamado do cuidador','comando de movimento');
+  }},false);
 
   let lastFrame=performance.now(),lastSample=0,lastSave=performance.now(),lastRender=0;
   let prevState=null,prevPerch=null,prevArea=null,prevDate=null;
@@ -278,7 +291,7 @@
     const now=performance.now();
     const dt=Math.max(0,Math.min(0.10,(now-lastFrame)/1000));
     lastFrame=now;
-    const d=today(),state=classify(), assisted=!!(callTarget.active||flightBoostTimer>0);
+    const d=today(),state=classify(), assisted=!!(callTarget.active||flightBoostTimer>0||now<caregiverUntil);
     const date=dayKey(new Date()), area=areaAt(flyPos);
     if(date!==prevDate){prevArea=null;prevDate=date;}
     if(dt>0){
