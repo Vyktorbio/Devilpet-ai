@@ -1397,7 +1397,7 @@ function triggerReinforcement(val) {
   HABITAT_FRUITS.forEach((f,i)=>{const d=Math.hypot(f.x-flyPos.x,f.z-flyPos.z);if(d<nearestDistance){nearest=i;nearestDistance=d;}});
   if(nearest>=0)neuroEthology.reinforce(nearest,val);
   if (val > 0) {
-    pet.bond = Math.min(1.0, pet.bond + 0.045);
+    pet.bond = Math.min(1.0, pet.bond + 0.01);
     playTone(680, 0.12, 'triangle', 0.09);
   } else {
     pet.bond = Math.max(0.0, pet.bond - 0.02);
@@ -1689,7 +1689,7 @@ function stepSimulation() {
     pet.energy = Math.max(0.05, pet.energy - AWAKE_ENERGY_LOSS_PER_SECOND * metabolismDt * 0.25);
   } else {
     pet.rest = Math.max(0.05, pet.rest - 0.000012);
-    pet.energy = Math.max(0.05, pet.energy - AWAKE_ENERGY_LOSS_PER_SECOND * metabolismDt);
+    pet.energy = Math.max(0.05, pet.energy - AWAKE_ENERGY_LOSS_PER_SECOND * metabolismDt * (flyPos.y > 0.28 ? 2.2 : 1.0));
   }
   pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.55 + 0.45 * pet.bond)));
 
@@ -1784,7 +1784,7 @@ function stepSimulation() {
       feedingNow = true;
       actionLabel = 'Alimentando-se (MN9)';
       pet.energy = Math.min(1.0, pet.energy + 0.008);
-      pet.bond = Math.min(1.0, pet.bond + 0.0012);
+      pet.bond = Math.min(1.0, pet.bond + 0.00018 * metabolismDt);
       nectarState.amount -= 0.006;
       nectarMesh.scale.set(1.2 * Math.max(0.25, nectarState.amount), 0.55 * Math.max(0.25, nectarState.amount), 1.2 * Math.max(0.25, nectarState.amount));
       if (nectarState.amount <= 0.05) {
@@ -1818,7 +1818,7 @@ function stepSimulation() {
       actionLabel = 'Brincando com a Bolinha';
       ballState.vx += (dx / Math.max(0.2, distBall)) * 0.09;
       ballState.vz += (dz / Math.max(0.2, distBall)) * 0.09;
-      pet.bond = Math.min(1.0, pet.bond + 0.001);
+      pet.bond = Math.min(1.0, pet.bond + 0.00005 * metabolismDt);
     }
   }
 
@@ -2413,5 +2413,6 @@ window.addEventListener('load', () => {
   animate();
 });
 </script>
+<script src="./ethology.js"></script>
 </body>
 </html>
