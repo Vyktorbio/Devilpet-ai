@@ -206,7 +206,12 @@
   panel.style.padding='0';
   // Ensure the complete diary, including charts injected by other modules, is hidden when collapsed.
   panel.style.overflow='hidden';
-  panel.innerHTML='<summary style="cursor:pointer;padding:10px 14px;font-size:13px;font-weight:600;list-style-position:inside">Diário automático de Etologia</summary>'+
+  panel.style.maxHeight='none';
+  // Some mobile styles override native details visibility; enforce it for every injected section.
+  const hiddenStyle=document.createElement('style');
+  hiddenStyle.textContent='#ethology-panel:not([open]) > :not(summary), #ethology-panel:not([open]) > div { display:none !important; } #ethology-panel:not([open]) { min-height:0 !important; }';
+  document.head.appendChild(hiddenStyle);
+  panel.innerHTML='<summary style="cursor:pointer;padding:10px 14px;font-size:13px;font-weight:600;list-style-position:inside">📖 Diário automático de Etologia · tocar para abrir</summary>'+
     '<div style="padding:4px 14px 14px">'+
     '<p style="font-size:12px;color:var(--muted)">Observações da simulação, não provas de aprendizagem. Somente enquanto o jogo estiver aberto e rodando.</p>'+
     '<div class="metrics">'+
