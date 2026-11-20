@@ -919,7 +919,7 @@ function applyScenario(mode){
  activeScenario=scenarioWorld.setMode(mode);
  const home=habitatActive();
  if(activeScenario==='ground'&&previousScenario!=='ground'){
-   ballState={x:0,z:-12,vx:0,vz:0};
+   ballState={x:0,z:-5,vx:0,vz:0};
    ballMesh.position.set(ballState.x,BALL_R,ballState.z);
  }
  if(!home){
