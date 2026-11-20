@@ -121,6 +121,7 @@ jobs:
           test -s _site/fly/sensors.js
           test -s _site/fly/connectome-bridge.js
           test -s _site/environment/world3d.js
+          test -s _site/environment/habitat3d.js
       - name: Browser smoke test including 3D rendering and JS/Rust fallback
         run: |
           python3 -m http.server 8137 --bind 127.0.0.1 --directory _site >/tmp/devilpet-http.log 2>&1 &
