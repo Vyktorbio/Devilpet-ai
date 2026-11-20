@@ -567,6 +567,7 @@ scene.fog = new THREE.FogExp2(0x130e20, 0.012);
 const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 180);
 let camMode = 'far'; // 'far' | 'orbit' | 'top' | 'follow'
 let camYaw = 0.72, camPitch = 0.58, camDist = 35.5;
+const camTarget = new THREE.Vector3(0,0.35,0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -1644,8 +1645,8 @@ function updateCamera() {
     const cx = Math.cos(camYaw) * Math.cos(camPitch) * camDist;
     const cy = Math.sin(camPitch) * camDist;
     const cz = Math.sin(camYaw) * Math.cos(camPitch) * camDist;
-    camera.position.lerp(new THREE.Vector3(cx, cy, cz), 0.14);
-    camera.lookAt(0, 0.35, 0);
+    camera.position.lerp(new THREE.Vector3(cx+camTarget.x, cy+camTarget.y, cz+camTarget.z), 0.14);
+    camera.lookAt(camTarget);
   } else if (camMode === 'top') {
     camera.position.lerp(new THREE.Vector3(0, Math.max(22, camDist), 0.1), 0.12);
     camera.lookAt(0, 0, 0);
@@ -1723,30 +1724,58 @@ function handleViewportClick(clientX, clientY) {
   }
 }
 
-renderer.domElement.addEventListener('pointerdown', (e) => {
-  dragging = true;
-  downX = prevX = e.clientX;
-  downY = prevY = e.clientY;
+// Orbit with one finger/left drag; pan with two fingers/right drag; pinch or wheel to zoom.
+const activePointers=new Map();
+let gestureDistance=0,gestureMid=null,gestureMoved=false;
+function panCamera(dx,dy){
+  const scale=camDist*0.0023;
+  camTarget.x+=(-Math.sin(camYaw)*dx-Math.cos(camYaw)*Math.sin(camPitch)*dy)*scale;
+  camTarget.z+=(Math.cos(camYaw)*dx-Math.sin(camYaw)*Math.sin(camPitch)*dy)*scale;
+  camTarget.y+=Math.cos(camPitch)*dy*scale;
+}
+renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());
+renderer.domElement.addEventListener('pointerdown',e=>{
+  renderer.domElement.setPointerCapture(e.pointerId);
+  activePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  dragging=true; gestureMoved=false;
+  downX=prevX=e.clientX;downY=prevY=e.clientY;
+  if(activePointers.size>1){gestureDistance=0;gestureMid=null;gestureMoved=true;}
 });
-window.addEventListener('pointerup', (e) => {
-  if (dragging) {
-    const moved = Math.hypot(e.clientX - downX, e.clientY - downY);
-    if (moved < 6 && e.target === renderer.domElement) {
-      handleViewportClick(e.clientX, e.clientY);
+renderer.domElement.addEventListener('pointermove',e=>{
+  if(!activePointers.has(e.pointerId))return;
+  const old=activePointers.get(e.pointerId);
+  activePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(camMode!=='orbit'&&camMode!=='far')camMode='orbit';
+  if(activePointers.size>=2){
+    const [p,q]=[...activePointers.values()];
+    const distance=Math.hypot(p.x-q.x,p.y-q.y);
+    const mid={x:(p.x+q.x)/2,y:(p.y+q.y)/2};
+    if(gestureDistance>0)camDist=Math.max(7.5,Math.min(56,camDist*gestureDistance/Math.max(1,distance)));
+    if(gestureMid)panCamera(mid.x-gestureMid.x,mid.y-gestureMid.y);
+    gestureDistance=distance;gestureMid=mid;gestureMoved=true;
+  }else{
+    const dx=e.clientX-old.x,dy=e.clientY-old.y;
+    if(Math.hypot(e.clientX-downX,e.clientY-downY)>6)gestureMoved=true;
+    if(e.buttons===2||e.shiftKey)panCamera(dx,dy);
+    else{
+      camYaw+=dx*0.007;
+      camPitch=Math.max(0.12,Math.min(1.48,camPitch+dy*0.007));
     }
   }
-  dragging = false;
 });
-window.addEventListener('pointermove', (e) => {
-  if (!dragging || (camMode !== 'orbit' && camMode !== 'far')) return;
-  camYaw += (e.clientX - prevX) * 0.007;
-  camPitch = Math.max(0.16, Math.min(1.42, camPitch + (e.clientY - prevY) * 0.007));
-  prevX = e.clientX; prevY = e.clientY;
-});
-viewport.addEventListener('wheel', (e) => {
+function finishCameraPointer(e){
+  if(!activePointers.has(e.pointerId))return;
+  const wasSingle=activePointers.size===1;
+  activePointers.delete(e.pointerId);
+  if(wasSingle&&!gestureMoved&&Math.hypot(e.clientX-downX,e.clientY-downY)<6&&e.type==='pointerup')handleViewportClick(e.clientX,e.clientY);
+  if(activePointers.size===0){dragging=false;gestureDistance=0;gestureMid=null;}
+}
+renderer.domElement.addEventListener('pointerup',finishCameraPointer);
+renderer.domElement.addEventListener('pointercancel',finishCameraPointer);
+viewport.addEventListener('wheel',e=>{
   e.preventDefault();
-  camDist = Math.max(7.5, Math.min(56.0, camDist + e.deltaY * 0.022));
-}, { passive: false });
+  camDist=Math.max(7.5,Math.min(56,camDist+e.deltaY*0.022));
+},{passive:false});
 
 const dataButton=document.getElementById('btn-data');
 const dataDrawer=document.getElementById('pet-data-drawer');
