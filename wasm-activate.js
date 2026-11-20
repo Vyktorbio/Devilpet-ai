@@ -220,6 +220,9 @@ function selfTest() {
     for(let i=0;i<original.shortW.length;i++){
       ensure(isClose(original.shortW[i],Array.from(rust.shortW)[i]),'Pesos divergentes');
     }
+    // Motion/path integration also uses the neural model's RNG stream.
+    ensure(isClose(original.rng.next(),rust.rng.next()),'RNG de movimento divergente');
+    ensure(original.rng.getState()===rust.rng.getState(),'Estado RNG após movimento divergente');
     const signals=Array.from({length:4},()=>({food:.5}));
     const vitals={energy:.7,rest:.6,curiosity:.8};
     const j=olfJs.choose(signals,vitals);
