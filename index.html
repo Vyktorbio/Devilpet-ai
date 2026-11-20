@@ -597,6 +597,29 @@ const floor = new THREE.Mesh(
 floor.position.y = -0.35;
 floor.receiveShadow = true;
 scene.add(floor);
+
+// Shallow cemetery pond: visible water, stone rim and a safe drinking shoreline.
+const pond = {x:15.1,z:15.0,radius:3.0,shore:3.55};
+const pondGroup = new THREE.Group();
+pondGroup.position.set(pond.x,0,pond.z);
+const pondBed = new THREE.Mesh(new THREE.CylinderGeometry(pond.radius,pond.radius+.24,.19,48),
+ new THREE.MeshStandardMaterial({color:0x252d34,roughness:.96}));
+pondBed.position.y=-.055;pondGroup.add(pondBed);
+const pondWater = new THREE.Mesh(new THREE.CircleGeometry(pond.radius-.17,48),
+ new THREE.MeshPhysicalMaterial({color:0x28546b,roughness:.19,metalness:.12,transparent:true,opacity:.86,side:THREE.DoubleSide,depthWrite:false}));
+pondWater.rotation.x=-Math.PI/2;pondWater.position.y=.052;pondGroup.add(pondWater);
+const pondRim = new THREE.Mesh(new THREE.TorusGeometry(pond.radius+.07,.22,10,56),
+ new THREE.MeshStandardMaterial({color:0x585b60,roughness:.9}));
+pondRim.rotation.x=Math.PI/2;pondRim.position.y=.09;pondGroup.add(pondRim);
+for(let i=0;i<7;i++){
+ const a=i*Math.PI*2/7;
+ const stone=new THREE.Mesh(new THREE.DodecahedronGeometry(.30,0),
+  new THREE.MeshStandardMaterial({color:i%2?0x555a59:0x44474c,roughness:.96}));
+ stone.position.set(Math.cos(a)*3.45,.15,Math.sin(a)*3.45);
+ stone.scale.set(1.4,.55,1.1);pondGroup.add(stone);
+}
+scene.add(pondGroup);
+
 const boundaryMaterial = new THREE.MeshStandardMaterial({ color: 0x3b3545, roughness: 0.88 });
 for (const sign of [-1,1]) {
   const xWall = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.8, ARENA_RADIUS * 2), boundaryMaterial);
@@ -1068,7 +1091,7 @@ let clockSec = 0;
 let flyPos = { x: 0, y: 1.2, z: 0, vy: 0, angle: -0.4, flying: true, perchId: null };
 let flightBoostTimer = 0;
 let trailPoints = [];
-let pet = { energy: 0.78, rest: 0.82, curiosity: 0.65, bond: 0.20 };
+let pet = { energy: 0.78, rest: 0.82, curiosity: 0.65, bond: 0.20, hydration: 0.88 };
 let score = 0, streak = 0, missionIdx = 0, missionHits = 0;
 let lastZoneId = null;
 
@@ -1303,6 +1326,9 @@ function stepSimulation() {
     Math.floor(sleepTodaySeconds / 60) + ' / 60 min';
   document.getElementById('b-daily-sleep').style.width =
     Math.min(100, sleepTodaySeconds / SLEEP_DAILY_GOAL_SECONDS * 100).toFixed(1) + '%';
+  // Slow physiological thirst; older checkpoints receive a healthy initial hydration.
+  if (!Number.isFinite(pet.hydration)) pet.hydration=0.88;
+  if (!sleeping) pet.hydration=Math.max(0.04,pet.hydration-metabolismDt/(35*60));
   pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.55 + 0.45 * pet.bond)));
 
   // Central-complex-inspired heading integrator: noisy path integration.
@@ -1381,7 +1407,33 @@ function stepSimulation() {
     if (foraging.feeding) actionLabel = 'Forrageando em fruta';
   }
 
-  // Slight pull toward nearest elevated leaf perch when rest is low or curious
+  // Water detection: near-field moisture gradient plus internal thirst.
+  // Approach the shoreline, never aim for the deep centre of the pond.
+  const pondDx=pond.x-flyPos.x, pondDz=pond.z-flyPos.z;
+  const pondDist=Math.hypot(pondDx,pondDz);
+  const thirsty=!sleeping && pet.hydration<0.55;
+  const shorelineDistance=Math.abs(pondDist-pond.shore);
+  let drinkingNow=false;
+  if(thirsty && !nectarState.active && !callTarget.active){
+    const waterCue=Math.max(0,1-pondDist/27);
+    const drive=Math.min(2.8,(0.55-pet.hydration)*5.5+0.4)*Math.max(.35,waterCue);
+    const ux=pondDx/Math.max(.01,pondDist),uz=pondDz/Math.max(.01,pondDist);
+    const shoreError=pondDist-pond.shore;
+    if(shoreError>0.45){
+      desiredX+=ux*drive*2.4;desiredZ+=uz*drive*2.4;
+      desiredY+=(0.18-flyPos.y)*0.5;
+      actionLabel='Procurando água';
+    }else if(shorelineDistance<0.65 && flyPos.y<0.85){
+      drinkingNow=true;
+      pet.hydration=Math.min(1,pet.hydration+metabolismDt/8);
+      actionLabel='Bebendo água no lago';
+      desiredX*=0.08;desiredZ*=0.08;
+      desiredY+=(0.05-flyPos.y)*0.4;
+    }else if(pondDist<pond.shore){
+      desiredX-=ux*drive*2.4;desiredZ-=uz*drive*2.4;
+    }
+  }
+    // Slight pull toward nearest elevated leaf perch when rest is low or curious
   let nearestPerch = null, nearestPerchD = 999;
   for (const p of PERCHES) {
     const dp = Math.hypot(flyPos.x - p.x, flyPos.y - p.y, flyPos.z - p.z);
@@ -1531,7 +1583,7 @@ function stepSimulation() {
     }
     // New sensor-driven autonomy steers the ORIGINAL DevilPet mesh, not a second fly.
     // Preserve player commands and the existing trained neural zone responses.
-    if(!callTarget.active&&!nectarState.active&&embodiedMotor){
+    if(!callTarget.active&&!nectarState.active&&!thirsty&&embodiedMotor){
       steer+=embodiedMotor.turn*0.12;
       if(embodiedMotor.mode==='avoid')steer+=0.08;
       if(embodiedMotor.mode==='rest')actionLabel='Buscando repouso';
@@ -1541,7 +1593,7 @@ function stepSimulation() {
 
     const restingOnLeaf = (perchedOn !== null && pet.rest < 0.72 && Math.abs(desiredY) < 0.35);
     const baseSpeed = (0.08 + Math.min(0.085, out.dnSpikes * 0.002)) * (0.45 + 0.55 * pet.rest);
-    const speed = feedingNow ? 0.015 : (restingOnLeaf ? 0.004 : (investigatingZone ? 0.009 : baseSpeed * arrivalDamping)) * (embodiedMotor?.mode==='rest'&&!callTarget.active&&!nectarState.active?0.3:1);
+    const speed = drinkingNow ? 0.001 : feedingNow ? 0.015 : (restingOnLeaf ? 0.004 : (investigatingZone ? 0.009 : baseSpeed * arrivalDamping)) * (embodiedMotor?.mode==='rest'&&!callTarget.active&&!nectarState.active?0.3:1);
     flyPos.x += Math.cos(flyPos.angle) * speed;
     flyPos.z += Math.sin(flyPos.angle) * speed;
 
@@ -1591,6 +1643,7 @@ function stepSimulation() {
   }
 
   lastFoodContact=feedingNow||foraging.feeding;
+  pondWater.material.opacity=0.83+Math.sin(clockSec*1.6)*0.035;
   // Update 3D body, pitch tilt & articulations
   flyGroup.position.set(flyPos.x, flyPos.y, flyPos.z);
   flyGroup.rotation.y = -flyPos.angle;
@@ -1632,7 +1685,7 @@ function stepSimulation() {
   const zNow = detectZone();
   const zName = sleeping ? 'Descansando' : (zNow ? zNow.label : 'Cemitério Aberto');
   document.getElementById('hud-zone').innerHTML = `Zona atual: <strong>${zName}</strong>`;
-  document.getElementById('hud-action').innerHTML = `Ação: <strong>${actionLabel}</strong> · Altitude: <strong>${(flyPos.y * 2.0).toFixed(1)} cm</strong>`;
+  document.getElementById('hud-action').innerHTML = `Ação: <strong>${actionLabel}</strong> · Altitude: <strong>${(flyPos.y * 2.0).toFixed(1)} cm</strong> · Hidratação: <strong>${Math.round(pet.hydration*100)}%</strong>`;
 
   const tel = brain.telemetry();
   lastZoneId = zNow ? zNow.id : null;
