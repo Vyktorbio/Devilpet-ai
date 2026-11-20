@@ -21,7 +21,7 @@ Não concatenar dados de animais diferentes: os IDs são locais a cada dataset e
 Requer Python 3.10+, NumPy e PyArrow, Rust/Cargo e alguns GB de disco. A tabela oficial completa de conexões tem aproximadamente 1,1 GB, portanto não é apropriada para download automático no smartphone.
 
 ~~~sh
-python -m pip install "numpy>=1.26,<3" "pyarrow>=18,<26"
+python -m pip install "numpy>=1.26,<3" "pyarrow>=18,<26" "numba>=0.61,<1"
 mkdir -p data/male-cns-v1.0
 curl -fL --retry 4 -C - -o data/male-cns-v1.0/weights.feather \
   "https://storage.googleapis.com/flyem-male-cns/v1.0/connectome-data/flat-connectome/connectome-weights-male-cns-v1.0-minconf-0.5.feather"
