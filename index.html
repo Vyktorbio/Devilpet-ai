@@ -1252,6 +1252,7 @@ let neuroEthology=new FlyNeuroEthology();
 let embodiedBehavior = new DevilPetBehavior.FlyBehavior({seed:731});
 let embodiedMotor = null;
 let lastFoodContact = false;
+let lastWaterContact = false;
 function runNeuroExperiments() {
   // Paired training, extinction, reversal and retention; deterministic simulated tests.
   const report=[];
@@ -1374,7 +1375,9 @@ function stepSimulation() {
     taste:{...sensory.taste,water:waterContact?1:0},
     proprioception:{...sensory.proprioception,hydration:pet.hydration}
   };
-  const reward=modToApply+(waterContact&&thirsty?.22:0)+(foodContact&&pet.energy<.75?.12:0);
+  // Reinforce transitions into useful contact, not every frame spent at a resource.
+  const reward=modToApply+(!lastWaterContact&&waterContact&&thirsty?.6:0)+(!lastFoodContact&&foodContact&&pet.energy<.75?.5:0);
+  lastWaterContact=waterContact;
   embodiedMotor=embodiedBehavior.step(motorFrame,{dt:.016,reward:Math.max(-1,Math.min(1,reward))});
   let drinkingNow=false,feedingNow=false;
   if(!sleeping&&waterContact&&thirsty){
