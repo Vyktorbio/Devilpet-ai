@@ -3,10 +3,10 @@ use crate::rng::Mulberry32;
 use serde::{Deserialize, Serialize};
 
 const ODORS: [[f64;8];4]=[
- [1.,.22,.12,.04,.05,.04,.08,.02],
- [.10,.90,.25,.06,.04,.08,.03,.05],
- [.08,.14,.92,.38,.08,.04,.10,.03],
- [.18,.07,.20,.94,.42,.15,.05,.09],
+ [1.,0.22,0.12,0.04,0.05,0.04,0.08,0.02],
+ [0.10,0.90,0.25,0.06,0.04,0.08,0.03,0.05],
+ [0.08,0.14,0.92,0.38,0.08,0.04,0.10,0.03],
+ [0.18,0.07,0.20,0.94,0.42,0.15,0.05,0.09],
 ];
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct FruitPatch { pub x:f64,pub z:f64,pub odor:f64,pub food:f64 }
@@ -42,16 +42,16 @@ impl FlyNeuroEthology {
   self.orn.fill(0.);
   for i in 0..4 {
    let f=fruits[i];let d=((f.x-x).powi(2)+(f.z-z).powi(2)).sqrt();
-   let concentration=f.odor*f.food/(1.+.085*d*d);
+   let concentration=f.odor*f.food/(1.+0.085*d*d);
    for g in 0..8{self.orn[g]+=concentration*ODORS[i][g];}
   }
   for g in 0..8{
-   let surround=(self.orn[(g+1)%8]+self.orn[(g+7)%8])*.16;
+   let surround=(self.orn[(g+1)%8]+self.orn[(g+7)%8])*0.16;
    self.pn[g]=(self.orn[g].tanh()-surround).max(0.);
   }
   for k in 0..96{
    let a=self.projection[k];let v=(self.pn[a[0]]+self.pn[a[1]]+self.pn[a[2]])/3.;
-   self.kc[k]=if v>.22{((v-.22)*2.6).min(1.)}else{0.};
+   self.kc[k]=if v>0.22{((v-0.22)*2.6).min(1.)}else{0.};
   }
  }
  pub fn odor_value(&self,i:usize)->f64{
@@ -59,7 +59,7 @@ impl FlyNeuroEthology {
   let mut sum=0.;let mut den=0.;let t=&ODORS[i];
   for k in 0..96{
    let p=self.projection[k];let act=(t[p[0]]+t[p[1]]+t[p[2]])/3.;
-   if act<.18{continue;}
+   if act<0.18{continue;}
    let idx=(i*96+k)*2;
    sum+=act*(self.weights[idx]-self.weights[idx+1]);den+=act;
   }
@@ -70,32 +70,32 @@ impl FlyNeuroEthology {
   let hunger=1.-pet.energy;let fatigue=1.-pet.rest;
   let best_odor=(0..4).map(|i|self.odor_value(i)).fold(f64::NEG_INFINITY,f64::max);
   let actions=[
-   ("alimentar",.15+2.5*hunger+best_odor*.45),
-   ("repousar",.1+2.1*fatigue),
-   ("explorar",.4+pet.curiosity*.8),
-   ("brincar",.10+pet.curiosity*.9),
+   ("alimentar",0.15+2.5*hunger+best_odor*0.45),
+   ("repousar",0.1+2.1*fatigue),
+   ("explorar",0.4+pet.curiosity*0.8),
+   ("brincar",0.10+pet.curiosity*0.9),
   ];
   if self.steps==1||self.steps%90==0{
    let exps=actions.map(|a|(a.1*1.6).exp());
    let total=exps.iter().sum::<f64>();let mut r=self.rng.next_f64()*total;
-   for i in 0..4{r-=exps[i];if r<=0.{self.activity=actions[i].0;break;}}
+   for i in 0..4{r-=exps[i];if r<=0.{self.activity=actions[i]0.0;break;}}
   }
   let mut scores=[f64::NEG_INFINITY;4];
   for i in 0..4 {
-   if sensory[i].food<=.0005{continue;}
-   scores[i]=sensory[i].food*(.35+2.*hunger)+self.odor_value(i)*1.5+self.spatial[i]*.08;
+   if sensory[i].food<=0.0005{continue;}
+   scores[i]=sensory[i].food*(0.35+2.*hunger)+self.odor_value(i)*1.5+self.spatial[i]*0.08;
   }
   let mut best=-1;let mut best_score=f64::NEG_INFINITY;
   for i in 0..4{
    if scores[i]>best_score+1e-9{
     best=i as i32;best_score=scores[i];
-   }else if scores[i].is_finite()&&(scores[i]-best_score).abs()<=1e-9&&self.rng.next_f64()<.5{
+   }else if scores[i].is_finite()&&(scores[i]-best_score).abs()<=1e-9&&self.rng.next_f64()<0.5{
     best=i as i32;
    }
   }
   let previous=self.last_choice;
   if previous>=0 && scores[previous as usize].is_finite() &&
-   scores[previous as usize]>=best_score-.12 && self.steps%120!=0 {best=previous;}
+   scores[previous as usize]>=best_score-0.12 && self.steps%120!=0 {best=previous;}
   self.last_choice=best;
   OdorDecision{activity:self.activity.to_owned(),target:best,
    odor_value:if best<0{0.}else{self.odor_value(best as usize)}}
@@ -105,17 +105,17 @@ impl FlyNeuroEthology {
   let t=&ODORS[index];let sign=if reward>0.{1.}else if reward<0.{-1.}else{0.};
   for k in 0..96{
    let p=self.projection[k];let act=(t[p[0]]+t[p[1]]+t[p[2]])/3.;
-   if act<.18{continue;}
-   let idx=(index*96+k)*2;let delta=(act*.016).min(.02)*sign;
+   if act<0.18{continue;}
+   let idx=(index*96+k)*2;let delta=(act*0.016).min(0.02)*sign;
    self.weights[idx]=(self.weights[idx]+delta).clamp(-1.,1.);
    self.weights[idx+1]=(self.weights[idx+1]-delta).clamp(-1.,1.);
   }
-  self.spatial[index]=(self.spatial[index]+.09*sign).clamp(-1.,1.);
+  self.spatial[index]=(self.spatial[index]+0.09*sign).clamp(-1.,1.);
   if reward>0.{self.rewards+=1;}else{self.punishments+=1;}
  }
  pub fn rest(&mut self){
-  for w in &mut self.weights{*w*=.999995;}
-  for s in &mut self.spatial{*s*=.99999;}
+  for w in &mut self.weights{*w*=0.999995;}
+  for s in &mut self.spatial{*s*=0.99999;}
  }
  pub fn snapshot(&self)->OdorSnapshot{
   OdorSnapshot{weights:self.weights.clone(),spatial:self.spatial.to_vec(),
@@ -152,7 +152,7 @@ mod tests{
   let fruit=[FruitPatch{x:0.,z:0.,odor:1.,food:1.};4];
   let mut a=FlyNeuroEthology::new(47);let mut b=FlyNeuroEthology::new(47);
   a.sense(&fruit,1.,1.);b.sense(&fruit,1.,1.);
-  let sense=[OdorSignal{food:1.};4];let pet=PetVitals{energy:.5,rest:.8,curiosity:.6};
+  let sense=[OdorSignal{food:1.};4];let pet=PetVitals{energy:0.5,rest:0.8,curiosity:0.6};
   for _ in 0..180 {
    let x=a.choose(&sense,pet);let y=b.choose(&sense,pet);
    assert_eq!(x.target,y.target);assert_eq!(x.activity,y.activity);
