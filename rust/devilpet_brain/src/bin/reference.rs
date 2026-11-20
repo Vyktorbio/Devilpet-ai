@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     match a[1].as_str(){
         "demo" if a.len()==2 => {
             let mut brain=ArchitecturalFlyBrain::new(Tier::Drosophila,42);
-            let out=brain.step_window([.75,.05,.10,.4,.5],1.,.02,true,15.)?;
+            let out=brain.step_window([0.75,0.05,0.10,0.4,0.5],1.,0.02,true,15.)?;
             println!("{}",serde_json::to_string_pretty(&json!({
                 "engine":"rust-reduced-reference","output":out,
                 "telemetry":brain.telemetry(),"checkpoint":brain.js_checkpoint()
