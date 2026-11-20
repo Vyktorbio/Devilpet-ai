@@ -363,6 +363,10 @@
         <button type="button" class="place-btn active" data-place="nectar">Sangue</button>
         <button type="button" class="place-btn" data-place="ball">Bolinha</button><button type="button" class="place-btn" data-place="pond">Lago</button>
         <button type="button" class="place-btn" data-place="forest">Floresta</button>
+<button type="button" class="module-btn" data-module="cemetery">Cemitério</button>
+<button type="button" class="module-btn" data-module="maze">Labirinto</button>
+<button type="button" class="module-btn" data-module="ground">Arcos da bolinha</button>
+<button type="button" class="module-btn" data-module="air">Aros aéreos</button>
         <button type="button" class="place-btn" data-place="shelter">Caixa-refúgio</button>
         <button type="button" class="place-btn" data-place="pillar">Obstáculo</button>
         <button type="button" class="place-btn" data-place="call">Chamar Pet</button>
@@ -967,12 +971,21 @@ function restoreHabitatModules(data){
 // The neural engine is independent of scene rendering and geometric events.
 const scenarioWorld=new DevilPetScenarioWorld(THREE,scene);
 let activeScenario='clean';
+const enabledModules={cemetery:false,maze:false,ground:false,air:false};
+function refreshModules(){
+ cemeteryProps.visible=enabledModules.cemetery;
+ mazeEnabled=enabledModules.maze;mazeGroup.visible=mazeEnabled;
+ scenarioWorld.groundGroup.visible=enabledModules.ground;
+ scenarioWorld.airGroup.visible=enabledModules.air;
+ document.querySelectorAll('.module-btn').forEach(b=>{const on=!!enabledModules[b.dataset.module];b.classList.toggle('active',on);b.setAttribute('aria-pressed',String(on));});
+ updateSceneProgress();
+}
 const cemeteryFloorMaterial=floor.material;
 const neutralFloorMaterial=new THREE.MeshStandardMaterial({color:0x171b25,roughness:0.93});
-function habitatActive(){return activeScenario==='cemetery'||activeScenario==='maze';}
+function habitatActive(){return enabledModules.cemetery;}
 function ballAvailable(){return ballMesh.visible;}
-function activeTargets(){return habitatActive()?ZONES:scenarioWorld.getTargets();}
-function updateSceneProgress(){document.getElementById('scene-progress').textContent='Arena livre · monte seu ambiente com os botões acima.';}
+function activeTargets(){return habitatActive()?ZONES:enabledModules.air?scenarioWorld.airHoops:enabledModules.ground?scenarioWorld.groundArches:[];}
+function updateSceneProgress(){document.getElementById('scene-progress').textContent='Arena livre · '+(Object.entries(enabledModules).filter(([,v])=>v).map(([k])=>({cemetery:'cemitério',maze:'labirinto',ground:'arcos',air:'aros'}[k])).join(', ')||'sem módulos')+'.';}
 function applyScenario(mode){
  const previousScenario=activeScenario;
  activeScenario=scenarioWorld.setMode(mode);
@@ -987,9 +1000,7 @@ function applyScenario(mode){
    btn.disabled=false;
    btn.classList.toggle('active',btn.dataset.place===placeMode);
  });
- cemeteryProps.visible=home;
- mazeEnabled=activeScenario==='maze';
- mazeGroup.visible=mazeEnabled;
+ refreshModules();
  floor.visible=true;
  floor.material=cemeteryFloorMaterial;
  arenaBoundaries.visible=true;
@@ -1617,7 +1628,7 @@ function stepSimulation() {
         hit = true;
       }
     }
-    if(activeScenario==='ground')hit=scenarioWorld.collideBall(obj,rad)||hit;
+    if(enabledModules.ground)hit=scenarioWorld.collideBall(obj,rad)||hit;
     return hit;
   }
 
@@ -1640,7 +1651,7 @@ function stepSimulation() {
   ballMesh.position.set(ballState.x, BALL_R, ballState.z);
   ballMesh.rotation.x += ballState.vz * 1.3;
   ballMesh.rotation.z -= ballState.vx * 1.3;
-  scenarioWorld.observeBall(previousBall,ballState,(arch,count)=>{
+  if(enabledModules.ground)scenarioWorld.observeBall(previousBall,ballState,(arch,count)=>{
     statusLine.textContent='Bolinha atravessou '+arch.label+' ('+count+' passagens).';
     updateSceneProgress();
   });
@@ -1725,7 +1736,7 @@ function stepSimulation() {
     flyPos.vy = 0;
   }
 
-  scenarioWorld.observeFlight(previousFly,flyPos,(hoop,count)=>{
+  if(enabledModules.air)scenarioWorld.observeFlight(previousFly,flyPos,(hoop,count)=>{
     statusLine.textContent='Diabinha atravessou '+hoop.label+' ('+count+' passagens).';
     updateSceneProgress();
   });
@@ -1965,6 +1976,7 @@ btnPlay.addEventListener('click', () => {
   btnPlay.classList.toggle('active', running);
 });
 
+document.querySelectorAll('.module-btn').forEach(btn=>btn.addEventListener('click',()=>{const name=btn.dataset.module;enabledModules[name]=!enabledModules[name];refreshModules();statusLine.textContent=(enabledModules[name]?'Adicionado: ':'Removido: ')+btn.textContent;}));
 document.querySelectorAll('.place-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
@@ -1986,6 +1998,8 @@ document.querySelectorAll('.place-btn').forEach(btn => {
 document.getElementById('btn-clear-custom').addEventListener('click', () => {
    pondState.active=false;pondGroup.visible=false;
    clearHabitatModules();
+   for(const key of Object.keys(enabledModules))enabledModules[key]=false;
+   refreshModules();
   for (const p of customPillars) customGroup.remove(p.mesh);
   customPillars = [];
   nectarState.active = false;
@@ -2073,7 +2087,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       longW: Array.from(brain.longW),
       pet, pondState, waterVisits, waterDrinkingSeconds,
        habitatLayout:{forest:forestItems.map(p=>({x:p.x,z:p.z})),shelters:shelterItems.map(p=>({x:p.x,z:p.z}))},shelterVisits,shelterSeconds, score, streak, missionIdx, missionHits, flyPos,
-      scenario:'clean', scenarioStats:scenarioWorld.snapshot(),
+      scenario:'clean', modules:{...enabledModules}, scenarioStats:scenarioWorld.snapshot(),
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
       neuroEthology:neuroEthology.snapshot()
     };
@@ -2119,6 +2133,8 @@ document.getElementById('btn-load').addEventListener('click', () => {
     if (d.flyPos) flyPos = d.flyPos;
     scenarioWorld.restore(d.scenarioStats);
     applyScenario('clean');
+    for(const key of Object.keys(enabledModules))enabledModules[key]=!!d.modules?.[key];
+    refreshModules();
     document.querySelectorAll('.tier-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === brain.tierKey));
     statusLine.textContent = `Pet "${document.getElementById('pet-name').value}" restaurado (${brain.cfg.name}).`;
   } catch (e) {
