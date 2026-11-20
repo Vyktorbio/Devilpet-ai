@@ -18,7 +18,7 @@ Não concatenar dados de animais diferentes: os IDs são locais a cada dataset e
 
 ## Rodando o Male CNS real no computador
 
-Requer Python 3.10+, NumPy e PyArrow, Rust/Cargo e alguns GB de disco. A tabela oficial completa de conexões tem aproximadamente 1,1 GB, portanto não é apropriada para download automático no smartphone.
+Requer Python 3.10+, NumPy e PyArrow e alguns GB de disco; NÃO é necessário instalar Rust/Cargo. A tabela oficial completa de conexões tem aproximadamente 1,1 GB, portanto não é apropriada para download automático no smartphone.
 
 ~~~sh
 python -m pip install "numpy>=1.26,<3" "pyarrow>=18,<26"
@@ -38,14 +38,11 @@ python connectomes/import_graph.py \
   --license CC-BY-4.0 \
   --out data/compiled/male-cns-v1.0
 
-cargo test --manifest-path rust/connectome_engine/Cargo.toml
-cargo run --release --manifest-path rust/connectome_engine/Cargo.toml -- \
-  inspect data/compiled/male-cns-v1.0
-cargo run --release --manifest-path rust/connectome_engine/Cargo.toml -- \
-  neighbors data/compiled/male-cns-v1.0 12781 20
+python python/connectome_cli.py inspect data/compiled/male-cns-v1.0
+python python/connectome_cli.py neighbors data/compiled/male-cns-v1.0 12781 --top 20
 ~~~
 
-O grafo é um CSR direcionado, com os arquivos nodes.u64, offsets.u64, targets.u32, weights.f32 e manifest.json. O leitor Rust usa mapeamento read-only do disco. Um dataset de ~152 milhões de arestas exige mais de 1,2 GB só para adjacência convertida, além do download original.
+O grafo é um CSR direcionado, com os arquivos nodes.u64, offsets.u64, targets.u32, weights.f32 e manifest.json. O leitor Python/NumPy usa mapeamento read-only do disco. Um dataset de ~152 milhões de arestas exige mais de 1,2 GB só para adjacência convertida, além do download original.
 
 **Importante:** a tabela completa da Janelia contém conexões segmento→segmento, inclusive IDs de segmentos que podem não estar classificados como neurônios. O importador preserva todos os registros e não chama indiscriminadamente esses segmentos de neurônios.
 
@@ -69,9 +66,9 @@ O nome do arquivo e as colunas pre/post/count no exemplo são ilustrativos; cons
 
 ## Limites científicos e técnicos
 
-**Implementado:** catálogo versionado, importação em duas passagens e memória limitada de CSV/Feather/Parquet, identificadores originais, grafo CSR com validação, consultas de vizinhança e propagação matemática exploratória com limites explícitos de processamento.
+**Implementado:** catálogo versionado, importação vetorizada em três passagens e memória limitada de CSV/Feather/Parquet, identificadores originais, grafo CSR com validação, consultas de vizinhança e propagação matemática exploratória com limites explícitos de processamento.
 
-**Não implementado:** baixar ou embutir todos os arquivos originais no GitHub, atribuir neurotransmissores e propriedades elétricas a cada neurônio, reprodução fisiológica realista, aprendizagem completa, controle do corpo por músculos e neurônios motores, servidor de simulação ou substituição direta do cérebro do pet online.
+**Não implementado:** baixar ou embutir todos os arquivos originais no GitHub, atribuir neurotransmissores e propriedades elétricas a cada neurônio, reprodução fisiológica realista, aprendizagem completa, controle do corpo por músculos e neurônios motores, uma simulação neuronal fisiologicamente validada ou substituição direta do cérebro do pet online. O serviço experimental Python existe, mas exige grafo oficial e portas motoras revisadas.
 
 O comando de propagação usa conexões como pesos positivos não assinados, sem a fisiologia inibitória/excitatória real. **Não é uma demonstração de consciência nem uma mosca biológica simulada.**
 
