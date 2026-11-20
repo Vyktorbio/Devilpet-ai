@@ -1745,35 +1745,6 @@ btnPlay.addEventListener('click', () => {
   btnPlay.classList.toggle('active', running);
 });
 
-document.getElementById('btn-feed').addEventListener('click', () => {
-  const ang = Math.random() * Math.PI * 2;
-  const dist = 1.5 + Math.random() * 4.2;
-  nectarState = { active: true, x: Math.cos(ang) * dist, z: Math.sin(ang) * dist, amount: 1.0 };
-  nectarGroup.position.set(nectarState.x, 0, nectarState.z);
-  nectarMesh.scale.set(1.2, 0.55, 1.2);
-  nectarGroup.visible = true;
-  playTone(540, 0.14, 'sine', 0.07);
-  statusLine.textContent = 'Gota de sangue colocada no terrário! Ela vai farejar quando estiver com fome.';
-});
-
-document.getElementById('btn-ball').addEventListener('click', () => {
-  const ang = Math.random() * Math.PI * 2;
-  ballState = { x: flyPos.x + Math.cos(ang) * 2.2, z: flyPos.z + Math.sin(ang) * 2.2, vx: Math.cos(ang) * 0.16, vz: Math.sin(ang) * 0.16 };
-  playTone(440, 0.1, 'triangle', 0.06);
-  statusLine.textContent = 'Bolinha lançada! Quando está saciada e descansada, ela rola a bolinha espontaneamente.';
-});
-
-document.getElementById('btn-takeoff').addEventListener('click', () => {
-  if (sleeping) {
-    statusLine.textContent = 'Acorde o pet antes de decolar.';
-    return;
-  }
-  flightBoostTimer = 95;
-  flyPos.y = Math.max(flyPos.y, 0.65);
-  playTone(590, 0.15, 'sine', 0.07);
-  statusLine.textContent = 'Voo 3D ativado! A mosca pode procurar os mausoléus elevados.';
-});
-
 const btnMaze = document.getElementById('btn-maze');
 btnMaze.addEventListener('click', () => {
   mazeEnabled = !mazeEnabled;
