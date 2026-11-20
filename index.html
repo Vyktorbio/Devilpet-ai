@@ -128,14 +128,14 @@
   .viewport {
     position: relative;
     width: 100%;
-    height: calc(100dvh - 126px);
-    min-height: 520px;
+    height: calc(100dvh - 190px);
+    min-height: 340px;
     border-radius: 14px;
     overflow: hidden;
     border: 1px solid rgba(148, 163, 184, 0.16);
     background: radial-gradient(circle at 50% 35%, #111827 0%, #070a10 100%);
   }
-  @media (max-width: 640px) { .viewport { height: calc(100dvh - 160px); min-height: 360px; } }
+  @media (max-width: 640px) { .viewport { height: calc(100dvh - 225px); min-height: 260px; } }
   .cam-hud {
     position: absolute;
     bottom: 12px;
@@ -331,6 +331,10 @@
 .scene-picker{display:inline-flex;align-items:center;gap:8px;padding:0 8px;color:var(--muted);font-size:12px;white-space:nowrap}
 .scene-picker select{background:#1b2230;color:var(--text);border:1px solid var(--border);border-radius:9px;padding:8px 10px;font:inherit;max-width:170px}
 .scene-progress{font-size:12px;color:var(--muted);margin-top:8px}
+.reinforcement-toolbar{justify-content:center;padding:0}
+.reinforcement-toolbar .btn-group{width:100%;justify-content:center}
+.reinforcement-toolbar button{flex:1;justify-content:center;min-width:0}
+@media(max-width:640px){.reinforcement-toolbar button{font-size:11px;padding:8px 6px}.reinforcement-toolbar .kbd{display:none}}
 </style>
 <script src="./neural-engine.js?v=stable-rollback-20261120"></script>
 <script src="./scenario-world.js?v=training-scenes-20261120"></script>
@@ -372,6 +376,13 @@
       </div>
     </div>
 
+    <div class="topbar reinforcement-toolbar" aria-label="Treinamento por reforço">
+      <div class="btn-group">
+        <button type="button" id="btn-pos" class="btn-pos">+ Reforço positivo <span class="kbd">Espaço</span></button>
+        <button type="button" id="btn-neg" class="btn-neg">− Reforço negativo <span class="kbd">X</span></button>
+      </div>
+    </div>
+
     <div class="viewport" id="viewport">
       <div class="hud-overlay">
         <div class="hud-pill" id="hud-zone">Zona atual: <strong>Centro do Cemitério</strong></div>
@@ -392,10 +403,6 @@
     <summary class="pet-data-summary">Dados e controles</summary>
     <div class="pet-data-content">
     <div class="clicker-bar">
-      <div class="btn-group">
-        <button type="button" id="btn-pos" class="btn-pos">+1 Recompensa (PAM) <span class="kbd">Espaço</span></button>
-        <button type="button" id="btn-neg" class="btn-neg">-1 Aversão (PPL1) <span class="kbd">X</span></button>
-      </div>
       <div class="elig-wrap">
         <div class="elig-head">
           <span>Janela de Elegibilidade (250 ms)</span>
