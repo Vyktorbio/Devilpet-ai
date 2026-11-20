@@ -31,11 +31,42 @@ class ConnectomeImporterTests(unittest.TestCase):
             meta=json.loads((out/"manifest.json").read_text())
             self.assertEqual(meta["node_count"],4)
             self.assertEqual(meta["edge_count"],5)
-            self.assertEqual(meta["node_scope"],"all-annotated-neurons")
+            self.assertEqual(meta["node_scope"],"annotation-body-ids-plus-edge-endpoints")
             np.testing.assert_array_equal(np.fromfile(out/"nodes.u64",dtype="<u8"),[100,200,300,400])
             np.testing.assert_array_equal(np.fromfile(out/"offsets.u64",dtype="<u8"),[0,2,4,5,5])
             np.testing.assert_array_equal(np.fromfile(out/"targets.u32",dtype="<u4"),[1,2,2,2,0])
             np.testing.assert_array_equal(np.fromfile(out/"weights.f32",dtype="<f4"),[5,2,8,1,4])
+    def test_feather_ipc_and_parquet_imports(self):
+        try:
+            import pyarrow as pa
+            import pyarrow.feather as feather
+            import pyarrow.parquet as pq
+        except ImportError:
+            self.skipTest("pyarrow unavailable")
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            records=pa.table({
+                "body_pre":pa.array([12,12,23],type=pa.int64()),
+                "body_post":pa.array([23,34,34],type=pa.int64()),
+                "weight":pa.array([2,5,9],type=pa.int64()),
+            })
+            feather.write_feather(records,root/"edges.feather")
+            pq.write_table(records,root/"edges.parquet")
+            annotations=pa.table({"bodyId":pa.array([12,23,34,56],type=pa.int64())})
+            feather.write_feather(annotations,root/"nodes.feather")
+            for ext in ["feather","parquet"]:
+                out=root/f"csr_{ext}"
+                subprocess.run([sys.executable,str(SCRIPT),
+                    "--edges",str(root/f"edges.{ext}"),
+                    "--nodes",str(root/"nodes.feather"),
+                    "--dataset","test-feather","--version","v1",
+                    "--source","synthetic://arrow-test","--license","test-only",
+                    "--out",str(out),"--batch-size","10"],check=True)
+                np.testing.assert_array_equal(np.fromfile(out/"nodes.u64",dtype="<u8"),[12,23,34,56])
+                np.testing.assert_array_equal(np.fromfile(out/"offsets.u64",dtype="<u8"),[0,2,3,3,3])
+                np.testing.assert_array_equal(np.fromfile(out/"targets.u32",dtype="<u4"),[1,2,2])
+                np.testing.assert_array_equal(np.fromfile(out/"weights.f32",dtype="<f4"),[2,5,9])
+
     def test_rejects_invalid_weights_without_partial_output(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
