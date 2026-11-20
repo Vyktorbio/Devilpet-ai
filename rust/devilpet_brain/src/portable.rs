@@ -57,14 +57,17 @@ impl Genome {
     pub fn offspring(a: &Self,b:&Self,new_lineage_id: impl Into<String>,seed:u32)->Self {
         let mut rng=Mulberry32::new(seed ^ a.founder_seed ^ b.founder_seed.rotate_left(13));
         let tier=if rng.next_f64() < .5 {a.tier} else {b.tier};
-        let sleep_hour=if rng.next_f64() < .5 {a.circadian.sleep_hour} else {b.circadian.sleep_hour};
-        let wake_hour=if rng.next_f64() < .5 {a.circadian.wake_hour} else {b.circadian.wake_hour};
-        let timezone=if rng.next_f64() < .5 {a.circadian.timezone.clone()}
-            else {b.circadian.timezone.clone()};
+        // Inherit a valid complete circadian schedule from one parent.
+        // A naive hour-by-hour crossover can accidentally produce sleep == wake.
+        let circadian=if rng.next_f64() < .5 {
+            a.circadian.clone()
+        } else {
+            b.circadian.clone()
+        };
         let founder_seed=(rng.next_f64()*4_294_967_296.).floor() as u32;
         Self {
             lineage_id:new_lineage_id.into(), parent_lineages:vec![a.lineage_id.clone(),b.lineage_id.clone()],
-            tier,founder_seed,circadian:CircadianProfile {timezone,sleep_hour,wake_hour}
+            tier,founder_seed,circadian
         }
     }
 }
@@ -122,7 +125,7 @@ impl PortablePet {
         if self.genome.lineage_id.is_empty()||self.genome.lineage_id.len()>160 {
             return Err("invalid lineage id".into());
         }
-        self.genome.circadian.is_night(0).map_err(str::to_string)?;
+        self.genome.circadian.is_night(0).map_err(|e|e.to_owned())?;
         if self.genome.tier!=self.mind.sparse.tier_key{return Err("genome/mind architecture mismatch".into());}
         let n=self.genome.tier.parameters().n_kc*2;
         if self.mind.sparse.short_w.len()!=n || self.mind.sparse.long_w.len()!=n ||
