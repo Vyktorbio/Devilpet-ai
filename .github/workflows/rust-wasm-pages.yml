@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "index.html"
+      - "vendor/**"
       - "fly/**"
       - "environment/**"
       - "wasm-activate.js"
@@ -13,6 +14,7 @@ on:
     branches: [main]
     paths:
       - "index.html"
+      - "vendor/**"
       - "fly/**"
       - "environment/**"
       - "wasm-activate.js"
@@ -95,18 +97,35 @@ jobs:
           node ../tests/runtime-smoke.mjs
       - name: Install pinned, local rendering assets and browser smoke runner
         run: |
-          npm install --no-save --no-audit --no-fund --package-lock=false three@0.128.0 playwright-core@1.56.1
+          npm install --no-save --no-audit --no-fund --package-lock=false playwright-core@1.56.1
       - name: Run independent sensory-organ and whole-CNS protocol unit tests
         run: |
           node fly/sensors.test.cjs
           node fly/connectome-bridge.test.cjs
           node fly/headless-demo.cjs > /tmp/devilpet-headless-result.json
+      - name: Regression test branch-based GitHub Pages on mobile viewport
+        run: |
+          # Crucial: the branch publisher may serve the checked-out repository
+          # directly, without compiled WASM. All required scene assets must be present.
+          mkdir -p /tmp/devilpet-branch-pages/{vendor,environment,fly,connectomes}
+          cp index.html ./*.js /tmp/devilpet-branch-pages/
+          cp vendor/three.min.js /tmp/devilpet-branch-pages/vendor/
+          cp environment/*.js /tmp/devilpet-branch-pages/environment/
+          cp fly/*.js /tmp/devilpet-branch-pages/fly/
+          cp connectomes/index.html connectomes/datasets.json /tmp/devilpet-branch-pages/connectomes/
+          # Deliberately omit rust/devilpet_brain/pkg from this tree, exactly
+          # like a Pages branch build serving the checked-in files.
+          python3 -m http.server 8138 --bind 127.0.0.1 --directory /tmp/devilpet-branch-pages >/tmp/devilpet-branch-http.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          sleep 2
+          node rust/devilpet_brain/tests/branch-pages-smoke.mjs
       - name: Create standalone Pages artifact
         run: |
           mkdir -p _site/rust/devilpet_brain/pkg _site/vendor _site/connectomes _site/fly _site/environment
           cp index.html ./*.js _site/
-          cp node_modules/three/build/three.min.js _site/vendor/three.min.js
-          cp node_modules/three/LICENSE _site/vendor/LICENSE-three.txt
+          cp vendor/three.min.js _site/vendor/three.min.js
+          cp vendor/LICENSE-three.txt _site/vendor/LICENSE-three.txt
           cp connectomes/index.html connectomes/datasets.json _site/connectomes/
           cp fly/*.js _site/fly/
           cp environment/*.js _site/environment/
@@ -123,6 +142,7 @@ jobs:
           test -s _site/fly/connectome-bridge.js
           test -s _site/environment/world3d.js
           test -s _site/environment/habitat3d.js
+          test -s _site/vendor/three.min.js
       - name: Browser smoke test including 3D rendering and JS/Rust fallback
         run: |
           python3 -m http.server 8137 --bind 127.0.0.1 --directory _site >/tmp/devilpet-http.log 2>&1 &
