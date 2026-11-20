@@ -102,7 +102,7 @@ impl FlyNeuroEthology {
  }
  pub fn reinforce(&mut self,index:usize,reward:f64) {
   if index>=4||!reward.is_finite(){return;}
-  let t=&ODORS[index];let sign=reward.signum();
+  let t=&ODORS[index];let sign=if reward>0.{1.}else if reward<0.{-1.}else{0.};
   for k in 0..96{
    let p=self.projection[k];let act=(t[p[0]]+t[p[1]]+t[p[2]])/3.;
    if act<.18{continue;}
