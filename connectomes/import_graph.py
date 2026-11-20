@@ -23,8 +23,14 @@ FORMAT = "devilpet-connectome-csr-v1"
 
 
 def _batch(pre, post, weight):
-    pre = np.asarray(pre).astype(np.uint64)
-    post = np.asarray(post).astype(np.uint64)
+    pre = np.asarray(pre)
+    post = np.asarray(post)
+    if np.issubdtype(pre.dtype, np.signedinteger) and np.any(pre < 0):
+        raise ValueError('Negative presynaptic body ID')
+    if np.issubdtype(post.dtype, np.signedinteger) and np.any(post < 0):
+        raise ValueError('Negative postsynaptic body ID')
+    pre = pre.astype(np.uint64)
+    post = post.astype(np.uint64)
     weight = np.asarray(weight).astype(np.float64)
     if not (len(pre) == len(post) == len(weight)):
         raise ValueError("Column lengths differ")
@@ -205,9 +211,9 @@ def build(args):
             "format":FORMAT,"dataset_id":args.dataset,"version":args.version,
             "source":args.source,"license":args.license,
             "node_count":n,"edge_count":total_edges,
-            "node_scope":"all-annotated-neurons" if args.nodes else "edge-endpoints-only",
+            "node_scope":"annotation-body-ids-plus-edge-endpoints" if args.nodes else "edge-endpoints-only",
             "edge_semantics":"synapse_count",
-            "processing":"Two-pass exact adjacency import; no dropped edges or weight threshold. Duplicate records preserved; positive synapse counts converted to float32. No neurotransmitter signs inferred.",
+            "processing":"Two-pass directed adjacency import; no dropped edges or additional weight threshold. Duplicate records preserved; positive synapse counts converted to float32. Body segments are not automatically classified as neurons; no neurotransmitter signs inferred.",
             "source_filename":inp.name,
             "node_source_filename":Path(args.nodes).name if args.nodes else None,
             "input_columns":{"pre":args.pre,"post":args.post,"weight":args.weight}
