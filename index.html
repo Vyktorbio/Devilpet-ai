@@ -406,6 +406,10 @@
         <div class="bar-track"><div class="bar-fill" id="b-rest" style="width: 82%; background: var(--purple);"></div></div>
       </div>
       <div class="vital-box">
+        <div class="elig-head"><span>Sono hoje (meta: 1 h)</span><span id="v-daily-sleep">0 / 60 min</span></div>
+        <div class="bar-track"><div class="bar-fill" id="b-daily-sleep" style="width:0%;background:var(--purple)"></div></div>
+      </div>
+      <div class="vital-box">
         <div class="elig-head"><span>Curiosidade</span><span id="v-curiosity">65%</span></div>
         <div class="bar-track"><div class="bar-fill" id="b-curiosity" style="width: 65%; background: var(--cyan);"></div></div>
       </div>
@@ -1032,11 +1036,32 @@ let sleeping = false;
 let lastMetabolismStamp = performance.now();
 const HUNGER_SECONDS_TO_25_PERCENT = 6 * 60 * 60;
 const AWAKE_ENERGY_LOSS_PER_SECOND = 0.75 / HUNGER_SECONDS_TO_25_PERCENT;
-const SLEEP_MIN_SECONDS = 60 * 60;
-const SLEEP_TARGET_SECONDS = 90 * 60;
+// 0 -> 100% rest in 1 hour of active, visible game time.
+const SLEEP_REFILL_SECONDS = 60 * 60;
+const SLEEP_DAILY_GOAL_SECONDS = 60 * 60; // cumulative daily sleep, not a minimum per nap
 const AWAKE_REST_LOSS_PER_SECOND = 0.72 / (3 * 60 * 60);
+function localSleepDay() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function storedDailySleep(day) {
+  try {
+    const diary = JSON.parse(localStorage.getItem('devilpet_ethology_v1') || 'null');
+    const seconds = diary?.days?.[day]?.times?.sleep;
+    return Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  } catch (_) { return 0; }
+}
 let sleepElapsedSeconds = 0;
-let sleepStartRest = 0.22;
+let sleepStartRest = 0.22; // old checkpoint compatibility
+let sleepDay = localSleepDay();
+let sleepTodaySeconds = storedDailySleep(sleepDay);
+function refreshSleepDay() {
+  const current = localSleepDay();
+  if (sleepDay !== current) {
+    sleepDay = current;
+    sleepTodaySeconds = storedDailySleep(current);
+  }
+}
 let pendingMod = 0;
 let flashAlpha = 0;
 let legPhase = 0;
@@ -1259,18 +1284,24 @@ function stepSimulation() {
   const metabolismNow = performance.now();
   const metabolismDt = Math.min(0.10, Math.max(0, (metabolismNow - lastMetabolismStamp) / 1000));
   lastMetabolismStamp = metabolismNow;
+  refreshSleepDay();
   if (!sleeping && pet.rest <= 0.22) setPetSleep(true, true);
   if (sleeping) {
     sleepElapsedSeconds += metabolismDt;
+    sleepTodaySeconds += metabolismDt;
     neuroEthology.rest();
-    const restRate = Math.max(0, 0.94 - sleepStartRest) / SLEEP_TARGET_SECONDS;
-    pet.rest = Math.min(0.94, pet.rest + restRate * metabolismDt);
+    pet.rest = Math.min(1.0, pet.rest + metabolismDt / SLEEP_REFILL_SECONDS);
     pet.energy = Math.max(0.05, pet.energy - AWAKE_ENERGY_LOSS_PER_SECOND * metabolismDt * 0.25);
-    if (sleepElapsedSeconds >= SLEEP_MIN_SECONDS && pet.rest >= 0.94 - 1e-7) setPetSleep(false, true);
+    // She wakes naturally at full rest, even if the daily sleep goal is not yet reached.
+    if (pet.rest >= 1.0 - 1e-8) setPetSleep(false, true);
   } else {
     pet.rest = Math.max(0.05, pet.rest - AWAKE_REST_LOSS_PER_SECOND * metabolismDt * (flyPos.y > 0.28 ? 1.4 : 1));
     pet.energy = Math.max(0.05, pet.energy - AWAKE_ENERGY_LOSS_PER_SECOND * metabolismDt * (flyPos.y > 0.28 ? 2.2 : 1.0));
   }
+  document.getElementById('v-daily-sleep').textContent =
+    Math.floor(sleepTodaySeconds / 60) + ' / 60 min';
+  document.getElementById('b-daily-sleep').style.width =
+    Math.min(100, sleepTodaySeconds / SLEEP_DAILY_GOAL_SECONDS * 100).toFixed(1) + '%';
   pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.55 + 0.45 * pet.bond)));
 
   // Central-complex-inspired heading integrator: noisy path integration.
@@ -1796,14 +1827,11 @@ document.getElementById('btn-clear-custom').addEventListener('click', () => {
 
 function setPetSleep(asleep, automatic = false) {
   if (sleeping === asleep) return;
-  if (!asleep && !automatic && sleepElapsedSeconds < SLEEP_MIN_SECONDS) {
-    statusLine.textContent = 'A diabinha precisa dormir pelo menos 60 minutos de atividade antes de acordar.';
-    return;
-  }
+  // The daily one-hour goal is cumulative; waking up is never blocked for an hour.
   if (asleep) { sleepElapsedSeconds = 0; sleepStartRest = pet.rest; }
   sleeping = asleep;
   btnSleep.classList.toggle('active', sleeping);
-  btnSleep.textContent = sleeping ? 'Dormindo (mínimo 60 min)' : 'Descansar (LTM)';
+  btnSleep.textContent = sleeping ? 'Acordar Pet' : 'Descansar (LTM)';
   if (!automatic) playTone(sleeping ? 310 : 520, 0.18, 'sine', 0.07);
   statusLine.textContent = sleeping
     ? (automatic ? 'A diabinha ficou cansada e adormeceu sozinha.' : 'Seu pet está descansando e consolidando memórias.')
@@ -1874,7 +1902,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       shortW: Array.from(brain.shortW),
       longW: Array.from(brain.longW),
       pet, score, streak, missionIdx, missionHits, flyPos,
-      sleeping, sleepElapsedSeconds, sleepStartRest,
+      sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
       neuroEthology:neuroEthology.snapshot()
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
@@ -1899,8 +1927,13 @@ document.getElementById('btn-load').addEventListener('click', () => {
     sleeping = !!d.sleeping;
     sleepElapsedSeconds = Number.isFinite(d.sleepElapsedSeconds) ? Math.max(0,d.sleepElapsedSeconds) : 0;
     sleepStartRest = Number.isFinite(d.sleepStartRest) ? d.sleepStartRest : pet.rest;
+    sleepDay = localSleepDay();
+    sleepTodaySeconds = Math.max(
+      d.sleepDay === sleepDay && Number.isFinite(d.sleepTodaySeconds) ? d.sleepTodaySeconds : 0,
+      storedDailySleep(sleepDay)
+    );
     btnSleep.classList.toggle('active', sleeping);
-    btnSleep.textContent = sleeping ? 'Dormindo (mínimo 60 min)' : 'Descansar (LTM)';
+    btnSleep.textContent = sleeping ? 'Acordar Pet' : 'Descansar (LTM)';
     neuroEthology=new FlyNeuroEthology();neuroEthology.restore(d.neuroEthology);
     score = d.score || 0; streak = d.streak || 0;
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
