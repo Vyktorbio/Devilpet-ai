@@ -15,7 +15,9 @@ const browser=await chromium.launch({headless:true,executablePath,args:[
 try {
   const page=await browser.newPage({viewport:{width:1280,height:900}});
   const errors=[];
+  const consoleErrors=[];
   page.on('pageerror',error=>errors.push(error.message));
+  page.on('console',entry=>{ if(['error','warning'].includes(entry.type())) consoleErrors.push(entry.text()); });
   const response=await page.goto('http://127.0.0.1:8137/',{
     waitUntil:'domcontentloaded',timeout:25000});
   assert.equal(response.status(),200);
@@ -33,7 +35,17 @@ try {
   const before=await page.evaluate(()=>window.DevilPetRuntime.getBrain().tick);
   await page.waitForFunction(expected=>window.DevilPetRuntime.getBrain().tick>expected,
     before,{timeout:15000});
-  assert.equal(await page.evaluate(()=>window.DevilPetRuntime.getBrain().isRust),true);
+  const diagnostics=await page.evaluate(()=>({
+    runtime:window.DevilPetRustStatus?.(),
+    indicator:document.getElementById('brain-runtime')?.textContent,
+    rustBrain:window.DevilPetRuntime.getBrain().isRust,
+    rustOdor:window.DevilPetRuntime.getOdor().isRust,
+    brainTick:window.DevilPetRuntime.getBrain().tick
+  }));
+  if(!diagnostics.rustBrain || diagnostics.runtime?.mode!=='rust'){
+    console.error('BROWSER DIAGNOSTICS',JSON.stringify({diagnostics,errors,consoleErrors}));
+  }
+  assert.equal(diagnostics.rustBrain,true);
   await page.locator('#brain-runtime-toggle').click();
   await page.waitForFunction(()=>window.DevilPetRustStatus().mode==='javascript',{timeout:10000});
   assert.equal(await page.evaluate(()=>!!window.DevilPetRuntime.getBrain().isRust),false);
