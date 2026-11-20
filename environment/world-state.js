@@ -16,7 +16,7 @@
         ...clone(z,['x','y','z','radius']),
         id:String(z.id),aerial:!!z.aerial
       })),
-      fruits:fruits.map(f=>clone(f,['x','z','odor','food'])),
+      fruits:fruits.map(f=>({...clone(f,['x','z','odor','food']),identity:String(f.identity||f.kind||f.odorId||'fruit').slice(0,64)})),
       perches:perches.map(p=>({
         ...clone(p,['x','y','z','radius']),id:String(p.id)
       })),

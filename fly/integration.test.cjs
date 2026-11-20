@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict');
+const {FlyBody}=require('./body.js');
+const {FlyBehavior}=require('./behavior.js');
+const sensors=require('./sensors.js');
+const {snapshot}=require('../environment/world-state.js');
+const fruits=[{x:4,z:1,odor:1,food:1,identity:'banana'},{x:-4,z:0,odor:.8,food:1,identity:'citrus'}];
+const world=snapshot({radius:12,fruits,ambientLight:.8});
+const body=new FlyBody({radius:12}),brain=new FlyBehavior({seed:5});
+const vitals={energy:.3,rest:.8,curiosity:.6,bond:.1};
+let modes=new Set(),travel=0;
+for(let i=0;i<2000;i++){
+ const frame=sensors.sample(world,body.pose,vitals);
+ assert.equal(frame.odors[0].identity,'banana');
+ const motor=brain.step(frame,{dt:.05,reward:frame.taste.food?1:0});
+ assert.ok(['feed','avoid','rest','explore'].includes(motor.mode));
+ modes.add(motor.mode);body.step(motor,.05);
+ vitals.energy=Math.max(.05,vitals.energy-.0004);
+ vitals.rest=Math.max(0,vitals.rest-(motor.mode==='rest'?-.003:.0005));
+ assert.ok(Number.isFinite(body.pose.x)&&Number.isFinite(body.pose.z));
+ assert.ok(Math.hypot(body.pose.x,body.pose.z)<12);
+}
+assert.ok(body.distance>1,'fly must move in arena');
+assert.ok(modes.has('feed'),'hungry fly must seek food');
+const obstacle=sensors.sample(snapshot({radius:12,fruits:[],walls:[{x:body.pose.x+1,z:body.pose.z,w:1,d:1}]}),body.pose,vitals);
+assert.ok(obstacle.mechanosense);
+const stopped=brain.step({...obstacle,proprioception:{...obstacle.proprioception,energy:1,rest:0,curiosity:0}});
+assert.equal(stopped.mode,'rest');
+const restingBody=new FlyBody();restingBody.step(stopped,.05);assert.equal(restingBody.distance,0);
+assert.throws(()=>body.step({forward:NaN,turn:0,lift:0},.1));
+console.log('PASS: sensor -> motivation -> motor -> embodied 3D pose for 2000 steps; modes='+[...modes].join(',')+' distance='+body.distance.toFixed(2));
