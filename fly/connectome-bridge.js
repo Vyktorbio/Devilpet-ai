@@ -1,6 +1,6 @@
-/* Optional full-CNS bridge. A browser cannot load >1 GB real connectome
+/* Optional Python full-CNS bridge. A browser cannot load >1 GB real connectome
  * by itself. This adapter connects sensor frames to a separately running
- * native Rust graph process. It NEVER substitutes a fake graph.
+ * native Python graph process. It NEVER substitutes a fake graph.
  * No direct access to three.js, fly memory or body geometry.
  */
 (function(root){
@@ -57,6 +57,7 @@
       const health=await this.getJSON(path+'/health');
       if(health?.schema!=='devilpet-cns-server-v1' ||
          health.status!=='graph_loaded_ports_reviewed' ||
+         health.backend!=='python' ||
          !isKnown(health.dataset_id) ||
          !Number.isInteger(health.node_count) || health.node_count<100000 ||
          !Number.isInteger(health.edge_count) || health.edge_count<=100000 ||
