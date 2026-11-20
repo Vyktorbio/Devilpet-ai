@@ -78,7 +78,7 @@
     const odors=[];
     for(const f of world.fruits||[]){
       const odor=(x,z)=>f.odor*f.food/(1+.085*((x-f.x)**2+(z-f.z)**2));
-      odors.push({identity:String(f.odorId||f.kind||f.id||'fruit').slice(0,64),food:Math.max(0,odor(pose.x,pose.z)),
+      odors.push({identity:String(f.identity||f.odorId||f.kind||f.id||'fruit').slice(0,64),food:Math.max(0,odor(pose.x,pose.z)),
         left:odor(lx,lz),right:odor(rx,rz)});
     }
     // Same five cue channels, geometry and numerical mapping as the original pet.
