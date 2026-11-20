@@ -1,12 +1,15 @@
-name: Import REAL complete Male CNS 2026 connectivity
+name: Import complete Male CNS 2026 into Python CSR engine
 
 # This is a one-shot bulk DATA acquisition job, not a Pages deployment.
 # The actual official 1.1 GB full segment-to-segment edge table is used.
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths:
       - ".github/workflows/real-male-cns.yml"
       - "connectomes/import_graph.py"
+      - "python/connectome_engine.py"
+      - "python/connectome_cli.py"
   workflow_dispatch:
 
 permissions:
@@ -21,7 +24,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: dtolnay/rust-toolchain@stable
       - name: Install Feather importer with reproducible dependencies
         run: python -m pip install "numpy>=1.26,<3" "pyarrow>=18,<26"
       - name: Download OFFICIAL complete synaptic graph and metadata
@@ -69,12 +71,10 @@ jobs:
             --source https://male-cns.janelia.org/download/ \
             --license CC-BY-4.0 \
             --out data/compiled/male-cns-v1.0
-      - name: Validate real full CNS graph using Rust memory-mapped reader
+      - name: Validate real full CNS graph using Python memory-mapped reader
         timeout-minutes: 8
         run: |
-          cargo run --release --quiet \
-            --manifest-path rust/connectome_engine/Cargo.toml \
-            --bin connectome-cli -- inspect data/compiled/male-cns-v1.0
+          python python/connectome_cli.py inspect data/compiled/male-cns-v1.0
           python - <<'PY'
           import json
           import numpy as np

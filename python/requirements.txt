@@ -1,0 +1,2 @@
+# Offline-safe Python whole-CNS neural research backend
+numpy>=1.26,<3

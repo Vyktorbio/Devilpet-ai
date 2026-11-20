@@ -327,7 +327,7 @@
 <script src="./environment/world-state.js?v=integrate-20261120"></script>
 <script src="./fly/sensors.js?v=integrate-20261120"></script>
 <script src="./fly/agent.js?v=integrate-20261120"></script>
-<script src="./fly/connectome-bridge.js?v=integrate-20261120"></script>
+<script src="./fly/connectome-bridge.js?v=python1"></script>
 </head>
 <body>
 <div class="layout">
@@ -445,12 +445,13 @@
       Arquitetura ativa: 48 KC · 96 sinapses plásticas · Filtro APL 35% · Memória de trabalho recorrente.
     </div>
 
-      <div style="margin-top:9px"><button type="button" id="brain-runtime-toggle" disabled>Carregando motor Rust…</button></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:9px">Conectoma completo: Python em computador/servidor. O motor JavaScript mantém o pet funcionando sem conexão.</div>
     </details>
-    <div id="brain-runtime" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted)">Motor: JavaScript (carregando Rust…)</div>
+    <div id="brain-runtime" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted)">Cérebro local: JavaScript · conectoma completo: Python (opcional)</div>
     <a href="./connectomes/" style="display:inline-block;font-size:12px;margin-top:8px;color:#a9bdff">Laboratório dos conectomas completos (2026)</a>
     <details id="cns-bridge-details" style="margin-top:12px">
-      <summary>Conectoma real: serviço Rust (experimental)</summary>
+      <summary>Conectoma real: serviço Python (experimental)</summary>
+      <p style="font-size:11px;color:var(--muted)">O Python não roda no GitHub Pages. É preciso iniciar o programa num computador/servidor com o conectoma real e portas neuronais revisadas. <strong>No celular, 127.0.0.1 aponta para o próprio celular</strong>; para conectar a um PC distante, é necessário serviço HTTPS autenticado. <a href="https://github.com/Vyktorbio/Devilpet-ai/blob/main/python/README.md" target="_blank" rel="noopener noreferrer">Instruções de instalação em Python</a>.</p>
       <p style="font-size:11px;color:var(--muted)">Requer o grafo CNS oficial carregado num computador ou servidor e IDs sensoriais/motores identificados. A propagação anatômica ainda não é fisiologia validada.</p>
       <label for="cns-endpoint" style="display:block;font-size:12px;margin-bottom:5px">Serviço local ou HTTPS</label>
       <input id="cns-endpoint" type="url" value="http://127.0.0.1:8326" style="padding:8px;max-width:330px;width:100%;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:inherit">
@@ -994,7 +995,7 @@ function triggerReinforcement(val) {
 
 let neuroEthology=new FlyNeuroEthology();
 // The fly is independent of the 3-D renderer. Neural ports always refer to
-// the current engine, including Rust/JS switches and checkpoint restoration.
+// the current JavaScript engine; optional external CNS runs in Python.
 const flyAgent = new DevilPetFly.FlyAgent({
   getBrain:()=>brain,getOdor:()=>neuroEthology,sensors:DevilPetSensors
 });
@@ -1726,8 +1727,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       longW: Array.from(brain.longW),
       pet, score, streak, missionIdx, missionHits, flyPos,
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
-      neuroEthology:neuroEthology.snapshot(),
-      rustState: brain.isRust ? brain.fullSnapshot() : undefined
+      neuroEthology:neuroEthology.snapshot()
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
     statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`+
@@ -1749,10 +1749,8 @@ document.getElementById('btn-load').addEventListener('click', () => {
     brain.rng.setState(d.rng ?? 42);
     if (d.shortW && d.shortW.length === brain.shortW.length) brain.shortW.set(d.shortW);
     if (d.longW && d.longW.length === brain.longW.length) brain.longW.set(d.longW);
-    if (brain.isRust && d.rustState) {
-      try { brain.restoreFull(d.rustState); }
-      catch(e) { console.warn('Rust state incomplete; restored legacy weights',e); }
-    }
+    // Older JSON backups containing rustState remain readable because
+    // shortW and longW already preserve their compatible learned weights.
     if (d.pet) pet = d.pet;
     sleeping = !!d.sleeping;
     sleepElapsedSeconds = Number.isFinite(d.sleepElapsedSeconds) ? Math.max(0,d.sleepElapsedSeconds) : 0;
@@ -1792,14 +1790,10 @@ function animate() {
     try {
       stepSimulation();
     } catch (error) {
-      // A Rust trap must not leave the pet frozen or terminate the animation loop.
-      const restored = window.DevilPetRustRecover?.(error) === true;
-      if (!restored) {
-        running = false;
-        btnPlay.textContent = 'Retomar simulação';
-        statusLine.textContent = 'Erro de execução: simulação pausada, memória preservada.';
-        console.error('DevilPet simulation paused safely', error);
-      }
+      running = false;
+      btnPlay.textContent = 'Retomar simulação';
+      statusLine.textContent = 'Erro de execução: simulação pausada, memória preservada.';
+      console.error('DevilPet simulation paused safely', error);
     }
   }
   updateCamera();
@@ -1823,8 +1817,8 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') autoSavePet();
 });
 
-// The Rust WebAssembly bridge only changes the controller implementation.
-// All physics, controls and original JS neural classes remain available.
+// JS offline pet and independent Python CNS: world/sensors never depend on
+// downloading or compiling any Rust/WebAssembly code.
 window.DevilPetRuntime = {
   getBrain:()=>brain, setBrain:v=>{brain=v;},
   getOdor:()=>neuroEthology, setOdor:v=>{neuroEthology=v;},
@@ -1841,7 +1835,7 @@ window.addEventListener('load', () => {
   } catch (error) {
     console.warn('Storage indisponível; pet iniciado em memória volátil',error);
   }
-  // Never wait for WebAssembly to render the pet. JavaScript always starts first.
+  // JavaScript starts instantly; no WebAssembly dependency.
   lastMetabolismStamp = performance.now();
   if (rafId) cancelAnimationFrame(rafId);
   animate();
@@ -1851,6 +1845,5 @@ window.addEventListener('load', () => {
 <script src="./ethology.js?v=line1"></script>
 <script src="./ethology-line-chart.js?v=line1"></script>
 <script src="./ethology-lab.js?v=line1"></script>
-<script type="module" src="./wasm-activate.js?v=stable20261120"></script>
 </body>
 </html>
