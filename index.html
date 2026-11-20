@@ -322,8 +322,6 @@
   }
 </style>
 <script src="./neural-engine.js?v=stable-rollback-20261120"></script>
-<script src="./fly/sensors.js"></script>
-<script src="./fly/behavior.js"></script>
 </head>
 <body>
 <div class="layout">
@@ -332,7 +330,6 @@
       <div class="btn-group">
         <button type="button" id="btn-play" class="active">Pausar</button>
         <button type="button" id="btn-feed" class="btn-pet">Dar Sangue</button>
-        <button type="button" id="btn-meat" class="btn-pet" aria-pressed="false">Adicionar carnes</button>
         <button type="button" id="btn-ball" class="btn-pet">Jogar Bolinha</button>
         <button type="button" id="btn-takeoff" class="btn-pet">Decolar (Voo 3D)</button>
         <button type="button" id="btn-maze" class="active">Labirinto: Ligado</button>
@@ -589,7 +586,7 @@ rimLight.position.set(-9, 7, -8);
 scene.add(rimLight);
 
 // Expanded square cemetery; the neural model is intentionally untouched.
-const ARENA_RADIUS = 20.7; // arena width reduced 10%: 41.4 x 41.4 scene units
+const ARENA_RADIUS = 23.0; // square half-width: 46 x 46 scene units
 const floorTex = makeFloorTexture();
 floorTex.repeat.set(1.5,1.5);
 const floor = new THREE.Mesh(
@@ -599,29 +596,6 @@ const floor = new THREE.Mesh(
 floor.position.y = -0.35;
 floor.receiveShadow = true;
 scene.add(floor);
-
-// Shallow cemetery pond: visible water, stone rim and a safe drinking shoreline.
-const pond = {x:15.1,z:15.0,radius:3.0,shore:3.55};
-const pondGroup = new THREE.Group();
-pondGroup.position.set(pond.x,0,pond.z);
-const pondBed = new THREE.Mesh(new THREE.CylinderGeometry(pond.radius,pond.radius+.24,.19,48),
- new THREE.MeshStandardMaterial({color:0x252d34,roughness:.96}));
-pondBed.position.y=-.055;pondGroup.add(pondBed);
-const pondWater = new THREE.Mesh(new THREE.CircleGeometry(pond.radius-.17,48),
- new THREE.MeshPhysicalMaterial({color:0x28546b,roughness:.19,metalness:.12,transparent:true,opacity:.86,side:THREE.DoubleSide,depthWrite:false}));
-pondWater.rotation.x=-Math.PI/2;pondWater.position.y=.052;pondGroup.add(pondWater);
-const pondRim = new THREE.Mesh(new THREE.TorusGeometry(pond.radius+.07,.22,10,56),
- new THREE.MeshStandardMaterial({color:0x585b60,roughness:.9}));
-pondRim.rotation.x=Math.PI/2;pondRim.position.y=.09;pondGroup.add(pondRim);
-for(let i=0;i<7;i++){
- const a=i*Math.PI*2/7;
- const stone=new THREE.Mesh(new THREE.DodecahedronGeometry(.30,0),
-  new THREE.MeshStandardMaterial({color:i%2?0x555a59:0x44474c,roughness:.96}));
- stone.position.set(Math.cos(a)*3.45,.15,Math.sin(a)*3.45);
- stone.scale.set(1.4,.55,1.1);pondGroup.add(stone);
-}
-scene.add(pondGroup);
-
 const boundaryMaterial = new THREE.MeshStandardMaterial({ color: 0x3b3545, roughness: 0.88 });
 for (const sign of [-1,1]) {
   const xWall = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.8, ARENA_RADIUS * 2), boundaryMaterial);
@@ -1093,7 +1067,7 @@ let clockSec = 0;
 let flyPos = { x: 0, y: 1.2, z: 0, vy: 0, angle: -0.4, flying: true, perchId: null };
 let flightBoostTimer = 0;
 let trailPoints = [];
-let pet = { energy: 0.78, rest: 0.82, curiosity: 0.65, bond: 0.20, hydration: 0.88 };
+let pet = { energy: 0.78, rest: 0.82, curiosity: 0.65, bond: 0.20 };
 let score = 0, streak = 0, missionIdx = 0, missionHits = 0;
 let lastZoneId = null;
 
@@ -1158,9 +1132,7 @@ function triggerReinforcement(val) {
     { x: 5.6, z: 8.2, kind:'carne em decomposição', color:0x88565c, odor:0.9, food:1, value:0 },
     { x:-6.4, z: 8.4, kind:'carne em decomposição', color:0x51313b, odor:1.3, food:1, value:0 }
   ];
-  let meatVisible=false;
   const habitatGroup = new THREE.Group();
-  habitatGroup.visible=false;
   scene.add(habitatGroup);
   const fruitMeshes = [];
   // Distinct fruit silhouettes, pedestals and soft ground patches make food easy to find.
@@ -1200,7 +1172,6 @@ function triggerReinforcement(val) {
   // Environmental field: coordinates are only used by the world to generate sensory input.
   // The agent receives local odor intensity and left/right antenna differences.
   function odorAt(x,z,i) {
-    if(!meatVisible)return 0;
     const f=HABITAT_FRUITS[i];
     const d2=(x-f.x)**2+(z-f.z)**2;
     return f.odor*f.food/(1+0.085*d2);
@@ -1248,11 +1219,6 @@ function triggerReinforcement(val) {
 
 
 let neuroEthology=new FlyNeuroEthology();
-// Integrated autonomous sensor/motivation controller; original 3D body and neural engine retained.
-let embodiedBehavior = new DevilPetBehavior.FlyBehavior({seed:731});
-let embodiedMotor = null;
-let lastFoodContact = false;
-let lastWaterContact = false;
 function runNeuroExperiments() {
   // Paired training, extinction, reversal and retention; deterministic simulated tests.
   const report=[];
@@ -1332,27 +1298,19 @@ function stepSimulation() {
     Math.floor(sleepTodaySeconds / 60) + ' / 60 min';
   document.getElementById('b-daily-sleep').style.width =
     Math.min(100, sleepTodaySeconds / SLEEP_DAILY_GOAL_SECONDS * 100).toFixed(1) + '%';
-  // Slow physiological thirst; older checkpoints receive a healthy initial hydration.
-  if (!Number.isFinite(pet.hydration)) pet.hydration=0.88;
-  if (!sleeping) pet.hydration=Math.max(0.04,pet.hydration-metabolismDt/(35*60));
   pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.55 + 0.45 * pet.bond)));
 
   // Central-complex-inspired heading integrator: noisy path integration.
   neuroEthology.heading=0.97*neuroEthology.heading+0.03*flyPos.angle;
 
-  // A single organ-level sensory frame supplies the neural circuit and motor controller.
-  const nowHour=new Date();
-  const sensory=DevilPetSensors.sample({
-    radius:ARENA_RADIUS-1.2,
-    walls:mazeEnabled?MAZE_WALLS:[],
-    pillars:mazeEnabled?customPillars:[],
-    ball:ballState,
-    blood:nectarState.active?nectarState:null,
-    perches:PERCHES,zones:ZONES,fruits:meatVisible?HABITAT_FRUITS:[],
-    ambientLight:sleeping?.25:1,airflow:{x:0,z:0}
-  },flyPos,pet,{sleeping,localHour:nowHour.getHours(),localMinute:nowHour.getMinutes()});
-  const cues=sensory.cues;
-  const distBall=Math.hypot(flyPos.x-ballState.x,flyPos.y,flyPos.z-ballState.z);
+  // 3D Sensory cues (3 floor zones + 1 aerial sky ring + play ball)
+  const cues = { cyan: 0, amber: 0, red: 0, ball: 0, sky: 0 };
+  for (const z of ZONES) {
+    const d3 = Math.hypot(flyPos.x - z.x, flyPos.y - z.y, flyPos.z - z.z);
+    cues[z.id] = Math.max(0, 1.0 - d3 / 11.5);
+  }
+  const distBall = Math.hypot(flyPos.x - ballState.x, flyPos.y, flyPos.z - ballState.z);
+  cues.ball = Math.max(0, 1.0 - distBall / 9.0);
 
   const modToApply = sleeping ? 0 : pendingMod;
   pendingMod = 0;
@@ -1360,45 +1318,117 @@ function stepSimulation() {
 
   const out = brain.stepWindow(cues, modToApply, cons, !sleeping, 15.0);
 
-  // Sensory-to-motor control: no scripted navigation to food, water or perches.
-  let desiredX=0,desiredY=0,desiredZ=0;
-  let actionLabel='Explorando';
-  const odorSignals=localOlfaction(flyPos);
-  const pondDist=Math.hypot(flyPos.x-pond.x,flyPos.z-pond.z);
-  const waterContact=Math.abs(pondDist-pond.shore)<0.65 && flyPos.y<0.85;
-  const foodContact=sensory.taste.food>0 || sensory.taste.blood>0;
-  const thirsty=pet.hydration<0.55;
-  const motorFrame={
-    ...sensory,
-    odors:sensory.odors.map((o,i)=>({...o,identity:'habitat-odor-'+i})),
-    moisture:Math.max(0,1-Math.abs(pondDist-pond.shore)/8),
-    taste:{...sensory.taste,water:waterContact?1:0},
-    proprioception:{...sensory.proprioception,hydration:pet.hydration}
-  };
-  // Reinforce transitions into useful contact, not every frame spent at a resource.
-  const reward=modToApply+(!lastWaterContact&&waterContact&&thirsty?.6:0)+(!lastFoodContact&&foodContact&&pet.energy<.75?.5:0);
-  lastWaterContact=waterContact;
-  embodiedMotor=embodiedBehavior.step(motorFrame,{dt:.016,reward:Math.max(-1,Math.min(1,reward))});
-  let drinkingNow=false,feedingNow=false;
-  if(!sleeping&&waterContact&&thirsty){
-    drinkingNow=true;pet.hydration=Math.min(1,pet.hydration+metabolismDt/8);
-    actionLabel='Bebendo água';
-  }
-  if(!sleeping&&foodContact&&pet.energy<.98){
-    feedingNow=true;pet.energy=Math.min(1,pet.energy+metabolismDt/12);
-    actionLabel='Alimentando-se';
-    if(nectarState.active&&sensory.taste.blood){
-      nectarState.amount=Math.max(0,nectarState.amount-metabolismDt/20);
-      if(nectarState.amount<=.05){nectarState.active=false;nectarGroup.visible=false;}
+  // 3D Emergent steering (X, Y altitude, Z)
+  let desiredX = 0, desiredY = 0, desiredZ = 0;
+  let actionLabel = flyPos.y > 0.45 ? 'Voando em 3D' : 'Explorando';
+
+  let settledZone = null;
+  let arrivalDamping = 1.0;
+  for (let i = 0; i < ZONES.length; i++) {
+    const z = ZONES[i];
+    const dx = z.x - flyPos.x;
+    const dy = z.y - flyPos.y;
+    const dz = z.z - flyPos.z;
+    const rawDist = Math.hypot(dx, dy, dz);
+    const val = brain.mbonRate[z.cueIdx];
+    if (val > 0.10 && rawDist < 1.8) {
+      const factor = Math.max(0.0, (rawDist - 0.55) / 1.25);
+      arrivalDamping = Math.min(arrivalDamping, 0.12 + 0.88 * factor);
+      if (rawDist < 0.95) settledZone = z;
+      if (rawDist > 0.55) {
+        desiredX += (dx / rawDist) * val * 1.35 * factor;
+        desiredY += (dy / rawDist) * val * 1.35 * factor;
+        desiredZ += (dz / rawDist) * val * 1.35 * factor;
+      }
+    } else {
+      const dist = Math.max(0.5, rawDist);
+      desiredX += (dx / dist) * val * 1.45;
+      desiredY += (dy / dist) * val * 1.45;
+      desiredZ += (dz / dist) * val * 1.45;
     }
   }
-  // Click marker is visual feedback, not a privileged steering command.
-  if(callTarget.active){
-    callTarget.timer--;
-    callRing.material.opacity=Math.min(.85,Math.max(0,callTarget.timer/40));
-    if(callTarget.timer<=0){callTarget.active=false;callRing.material.opacity=0;}
+
+  // Natural odor-guided foraging, competing with trained zone preferences.
+  const odorSignals=localOlfaction(flyPos);
+  const neuroDecision=neuroEthology.choose(odorSignals,pet);
+  const foraging = habitatStep(neuroDecision,odorSignals);
+  if(neuroDecision.activity!=='alimentar') {
+    foraging.dx=0;foraging.dz=0;foraging.dy=0;
   }
-  const settledZone=null,arrivalDamping=1;
+  if(neuroDecision.activity==='repousar') {
+    actionLabel='Buscando repouso';
+  }
+
+  if (!nectarState.active && !callTarget.active) {
+    desiredX += foraging.dx;
+    desiredY += foraging.dy;
+    desiredZ += foraging.dz;
+    if (foraging.feeding) actionLabel = 'Forrageando em fruta';
+  }
+
+  // Slight pull toward nearest elevated leaf perch when rest is low or curious
+  let nearestPerch = null, nearestPerchD = 999;
+  for (const p of PERCHES) {
+    const dp = Math.hypot(flyPos.x - p.x, flyPos.y - p.y, flyPos.z - p.z);
+    if (dp < nearestPerchD) { nearestPerchD = dp; nearestPerch = p; }
+  }
+  if (!sleeping && pet.rest < 0.45 && nearestPerch && !nectarState.active) {
+    desiredX += ((nearestPerch.x - flyPos.x) / Math.max(0.5, nearestPerchD)) * 0.75;
+    desiredY += ((nearestPerch.y + 0.12 - flyPos.y) / Math.max(0.5, nearestPerchD)) * 0.85;
+    desiredZ += ((nearestPerch.z - flyPos.z) / Math.max(0.5, nearestPerchD)) * 0.75;
+  }
+
+  let feedingNow = false;
+  if (nectarState.active && !sleeping) {
+    const dx = nectarState.x - flyPos.x;
+    const dz = nectarState.z - flyPos.z;
+    const dN = Math.hypot(dx, dz);
+    const hungerPull = (1.15 - pet.energy) * 2.4;
+    desiredX += (dx / Math.max(0.4, dN)) * hungerPull;
+    desiredY += ((0.0 - flyPos.y) / Math.max(0.4, dN)) * hungerPull;
+    desiredZ += (dz / Math.max(0.4, dN)) * hungerPull;
+    if (dN < 1.15 && flyPos.y < 0.6) {
+      feedingNow = true;
+      actionLabel = 'Alimentando-se (MN9)';
+      pet.energy = Math.min(1.0, pet.energy + 0.008);
+      pet.bond = Math.min(1.0, pet.bond + 0.00018 * metabolismDt);
+      nectarState.amount -= 0.006;
+      nectarMesh.scale.set(1.2 * Math.max(0.25, nectarState.amount), 0.55 * Math.max(0.25, nectarState.amount), 1.2 * Math.max(0.25, nectarState.amount));
+      if (nectarState.amount <= 0.05) {
+        nectarState.active = false;
+        nectarGroup.visible = false;
+        statusLine.textContent = 'Seu pet terminou a gota de sangue!';
+      }
+    }
+  } else if (!sleeping && callTarget.active) {
+    const dx = callTarget.x - flyPos.x;
+    const dz = callTarget.z - flyPos.z;
+    const dC = Math.hypot(dx, dz);
+    desiredX += (dx / Math.max(0.4, dC)) * 2.2;
+    desiredZ += (dz / Math.max(0.4, dC)) * 2.2;
+    actionLabel = 'Indo ao ponto clicado';
+    callTarget.timer--;
+    callRing.material.opacity = Math.min(0.85, callTarget.timer / 40);
+    const sRing = 1 + (1 - callTarget.timer / 140) * 1.4;
+    callRing.scale.set(sRing, sRing, 1);
+    if (dC < 1.1 || callTarget.timer <= 0) {
+      callTarget.active = false;
+      callRing.material.opacity = 0;
+    }
+  } else if (!sleeping && pet.curiosity > 0.45 && distBall < 7.5) {
+    const dx = ballState.x - flyPos.x;
+    const dz = ballState.z - flyPos.z;
+    const playPull = pet.curiosity * (1.0 + Math.max(0, brain.mbonRate[3]));
+    desiredX += (dx / Math.max(0.4, distBall)) * playPull * 0.9;
+    desiredZ += (dz / Math.max(0.4, distBall)) * playPull * 0.9;
+    if (distBall < 1.1) {
+      actionLabel = 'Brincando com a Bolinha';
+      ballState.vx += (dx / Math.max(0.2, distBall)) * 0.09;
+      ballState.vz += (dz / Math.max(0.2, distBall)) * 0.09;
+      pet.bond = Math.min(1.0, pet.bond + 0.00005 * metabolismDt);
+    }
+  }
+
   function resolveMazeCollision(obj, rad, bounceVel = false) {
     if (!mazeEnabled) return false;
     let hit = false;
@@ -1475,24 +1505,49 @@ function stepSimulation() {
   if (flightBoostTimer > 0) flightBoostTimer--;
 
   if (!sleeping) {
-    // Neural motor commands are the sole source of autonomous turning.
-    const steer=(embodiedMotor?.turn||0)*0.22;
-    if(embodiedMotor?.mode==='rest')actionLabel='Em repouso';
+    const pullMag = Math.hypot(desiredX, desiredZ);
+    const noiseScale = investigatingZone ? 0.05 : 0.19;
+    let steer = (brain.rng.next() - 0.5) * noiseScale;
+    if (pullMag > 0.06) {
+      const targetAngle = Math.atan2(desiredZ, desiredX);
+      const diff = Math.atan2(Math.sin(targetAngle - flyPos.angle), Math.cos(targetAngle - flyPos.angle));
+      const maxTurn = investigatingZone ? 0.06 : 0.18;
+      steer += Math.max(-maxTurn, Math.min(maxTurn, diff * 0.22));
+    }
     flyPos.angle = (flyPos.angle + steer) % (Math.PI * 2);
 
     const restingOnLeaf = (perchedOn !== null && pet.rest < 0.72 && Math.abs(desiredY) < 0.35);
     const baseSpeed = (0.08 + Math.min(0.085, out.dnSpikes * 0.002)) * (0.45 + 0.55 * pet.rest);
-    const speed = baseSpeed * Math.max(0,Math.min(1,embodiedMotor?.forward||0));
+    const speed = feedingNow ? 0.015 : (restingOnLeaf ? 0.004 : (investigatingZone ? 0.009 : baseSpeed * arrivalDamping));
     flyPos.x += Math.cos(flyPos.angle) * speed;
     flyPos.z += Math.sin(flyPos.angle) * speed;
 
-    // Altitude is also controlled by neural output; only physical limits are imposed.
-    const targetY=Math.max(0,Math.min(5.2,flyPos.y+(embodiedMotor?.lift||0)*0.12));
+    // 3D Vertical altitude control
+    let targetY = flyPos.y;
+    if (feedingNow) {
+      targetY = 0.0;
+    } else if (restingOnLeaf) {
+      targetY = perchedOn.y + 0.14;
+      pet.rest = Math.min(1.0, pet.rest + 0.0012);
+    } else if (investigatingZone) {
+      targetY = settledZone.aerial ? settledZone.y + Math.sin(clockSec * 5.0) * 0.15 : 0.0;
+    } else if (flightBoostTimer > 0) {
+      targetY = 3.5 + Math.sin(clockSec * 2.4) * 0.5;
+    } else {
+      // Natural autonomous 3D altitude drift + neural vertical pull
+      const verticalWander = Math.sin(clockSec * 0.65) * 0.045 + (brain.rng.next() - 0.5) * 0.07;
+      targetY = Math.max(0.0, Math.min(5.2, flyPos.y + desiredY * 0.14 + verticalWander));
+    }
     flyPos.vy = (targetY - flyPos.y) * 0.14;
     flyPos.y = Math.max(0.0, Math.min(5.4, flyPos.y + flyPos.vy));
 
     // Collide with maze walls if flying/walking below wall top (y < 2.65)
-    if (flyPos.y < 2.65) resolveMazeCollision(flyPos, 0.55, false);
+    if (flyPos.y < 2.65) {
+      const hitWall = resolveMazeCollision(flyPos, 0.55, false);
+      if (hitWall) {
+        flyPos.angle = (flyPos.angle + (brain.rng.next() > 0.5 ? 0.65 : -0.65)) % (Math.PI * 2);
+      }
+    }
 
     const maxFlyR = ARENA_RADIUS - 1.2;
     if (Math.abs(flyPos.x) > maxFlyR || Math.abs(flyPos.z) > maxFlyR) {
@@ -1512,8 +1567,6 @@ function stepSimulation() {
     flyPos.vy = 0;
   }
 
-  lastFoodContact=feedingNow;
-  pondWater.material.opacity=0.83+Math.sin(clockSec*1.6)*0.035;
   // Update 3D body, pitch tilt & articulations
   flyGroup.position.set(flyPos.x, flyPos.y, flyPos.z);
   flyGroup.rotation.y = -flyPos.angle;
@@ -1555,7 +1608,7 @@ function stepSimulation() {
   const zNow = detectZone();
   const zName = sleeping ? 'Descansando' : (zNow ? zNow.label : 'Cemitério Aberto');
   document.getElementById('hud-zone').innerHTML = `Zona atual: <strong>${zName}</strong>`;
-  document.getElementById('hud-action').innerHTML = `Ação: <strong>${actionLabel}</strong> · Altitude: <strong>${(flyPos.y * 2.0).toFixed(1)} cm</strong> · Hidratação: <strong>${Math.round(pet.hydration*100)}%</strong>`;
+  document.getElementById('hud-action').innerHTML = `Ação: <strong>${actionLabel}</strong> · Altitude: <strong>${(flyPos.y * 2.0).toFixed(1)} cm</strong>`;
 
   const tel = brain.telemetry();
   lastZoneId = zNow ? zNow.id : null;
@@ -1578,35 +1631,21 @@ function stepSimulation() {
 
 }
 
-// Smoothly tracked camera target. Only the camera changes; pet and arena remain untouched.
-const cameraFocus = new THREE.Vector3(0, 0.35, 0);
-const cameraDesired = new THREE.Vector3();
-const cameraOffset = new THREE.Vector3();
 function updateCamera() {
-  const petFocus = cameraDesired.set(flyPos.x, Math.max(0.35, flyPos.y + 0.35), flyPos.z);
   if (camMode === 'orbit' || camMode === 'far') {
-    // Track the pet with a gentle dead zone, retaining the surrounding arena in view.
-    const followWeight = camMode === 'far' ? 0.82 : 0.94;
-    const target = cameraOffset.set(petFocus.x * followWeight, petFocus.y * 0.55, petFocus.z * followWeight);
-    cameraFocus.lerp(target, 0.055);
-    // A modest automatic zoom-out keeps the pet framed near the arena edges.
-    const offset = Math.hypot(petFocus.x - cameraFocus.x, petFocus.z - cameraFocus.z);
-    const distance = Math.min(58, camDist + Math.max(0, offset - 3) * 0.75);
-    const cx = Math.cos(camYaw) * Math.cos(camPitch) * distance;
-    const cy = Math.sin(camPitch) * distance;
-    const cz = Math.sin(camYaw) * Math.cos(camPitch) * distance;
-    camera.position.lerp(cameraDesired.set(cameraFocus.x + cx, cameraFocus.y + cy, cameraFocus.z + cz), 0.12);
-    camera.lookAt(cameraFocus);
+    const cx = Math.cos(camYaw) * Math.cos(camPitch) * camDist;
+    const cy = Math.sin(camPitch) * camDist;
+    const cz = Math.sin(camYaw) * Math.cos(camPitch) * camDist;
+    camera.position.lerp(new THREE.Vector3(cx, cy, cz), 0.14);
+    camera.lookAt(0, 0.35, 0);
   } else if (camMode === 'top') {
-    cameraFocus.lerp(petFocus, 0.08);
-    camera.position.lerp(cameraDesired.set(cameraFocus.x, Math.max(22, camDist) + cameraFocus.y, cameraFocus.z + 0.1), 0.12);
-    camera.lookAt(cameraFocus);
+    camera.position.lerp(new THREE.Vector3(0, Math.max(22, camDist), 0.1), 0.12);
+    camera.lookAt(0, 0, 0);
   } else {
-    cameraFocus.lerp(petFocus, 0.15);
     const tx = flyPos.x - Math.cos(flyPos.angle) * 5.4;
     const tz = flyPos.z - Math.sin(flyPos.angle) * 5.4;
-    camera.position.lerp(cameraDesired.set(tx, flyPos.y + 2.8, tz), 0.1);
-    camera.lookAt(cameraFocus);
+    camera.position.lerp(new THREE.Vector3(tx, flyPos.y + 2.8, tz), 0.1);
+    camera.lookAt(flyPos.x, flyPos.y + 0.5, flyPos.z);
   }
 }
 
@@ -1711,16 +1750,6 @@ btnPlay.addEventListener('click', () => {
   running = !running;
   btnPlay.textContent = running ? 'Pausar' : 'Continuar';
   btnPlay.classList.toggle('active', running);
-});
-
-document.getElementById('btn-meat').addEventListener('click',()=>{
-  meatVisible=!meatVisible;
-  habitatGroup.visible=meatVisible;
-  const button=document.getElementById('btn-meat');
-  button.textContent=meatVisible?'Remover carnes':'Adicionar carnes';
-  button.setAttribute('aria-pressed',String(meatVisible));
-  button.classList.toggle('active',meatVisible);
-  statusLine.textContent=meatVisible?'Carnes adicionadas ao cemitério.':'Carnes removidas do cemitério.';
 });
 
 document.getElementById('btn-feed').addEventListener('click', () => {
@@ -1866,7 +1895,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       longW: Array.from(brain.longW),
       pet, score, streak, missionIdx, missionHits, flyPos,
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
-      neuroEthology:neuroEthology.snapshot(), embodiedBehavior:embodiedBehavior.snapshot()
+      neuroEthology:neuroEthology.snapshot()
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
     statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`;
@@ -1898,7 +1927,6 @@ document.getElementById('btn-load').addEventListener('click', () => {
     btnSleep.classList.toggle('active', sleeping);
     btnSleep.textContent = sleeping ? 'Acordar Pet' : 'Descansar (LTM)';
     neuroEthology=new FlyNeuroEthology();neuroEthology.restore(d.neuroEthology);
-    if(d.embodiedBehavior)embodiedBehavior.restore(d.embodiedBehavior);
     score = d.score || 0; streak = d.streak || 0;
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;
