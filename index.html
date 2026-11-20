@@ -896,6 +896,61 @@ function addChapelPinnacle(p){
 }
 PERCHES.forEach(addChapelPinnacle);
 
+// Old graveyard: decorative only, never added to collision or sensory systems.
+// Rows are outside the original central experiment and do not change the brain.
+const graveyard = new THREE.Group();
+scene.add(graveyard);
+const graveStoneMats = [
+  new THREE.MeshStandardMaterial({color:0x65636b,roughness:0.96}),
+  new THREE.MeshStandardMaterial({color:0x4d5059,roughness:0.98}),
+  new THREE.MeshStandardMaterial({color:0x77717a,roughness:0.93})
+];
+const graveBaseGeo = new THREE.BoxGeometry(1.35,0.20,0.78);
+const graveBodyGeo = new THREE.BoxGeometry(1.03,1.28,0.29);
+const graveCrownGeo = new THREE.SphereGeometry(0.52,10,6,0,Math.PI,0,Math.PI/2);
+const graveCrossStemGeo = new THREE.BoxGeometry(0.18,1.60,0.21);
+const graveCrossArmGeo = new THREE.BoxGeometry(0.76,0.17,0.21);
+const burialPositions = [];
+for (const flank of [-1,1]) {
+  for (let row=0;row<3;row++) {
+    for (let col=0;col<7;col++) {
+      const x=flank*(13.1+row*3.4);
+      const z=-18.4+col*6.0+(row%2)*0.65;
+      if (Math.abs(z)<3.5 && row===0) continue;
+      burialPositions.push([x,z]);
+    }
+  }
+}
+burialPositions.forEach(([x,z],i)=>{
+  const m=graveStoneMats[i%graveStoneMats.length];
+  const g=new THREE.Group();
+  const size=0.79+(i%5)*0.085;
+  g.position.set(x,0,z);
+  g.rotation.y=((i%7)-3)*0.045;
+  g.rotation.z=((i%9)-4)*0.018;
+  g.scale.setScalar(size);
+  const base=new THREE.Mesh(graveBaseGeo,m);
+  base.position.y=0.10;base.receiveShadow=true;g.add(base);
+  if(i%6===0){
+    const stem=new THREE.Mesh(graveCrossStemGeo,m);
+    stem.position.y=0.95;stem.castShadow=true;g.add(stem);
+    const arm=new THREE.Mesh(graveCrossArmGeo,m);
+    arm.position.y=1.28;arm.castShadow=true;g.add(arm);
+  }else{
+    const body=new THREE.Mesh(graveBodyGeo,m);
+    body.position.y=0.79;body.castShadow=true;body.receiveShadow=true;g.add(body);
+    const crown=new THREE.Mesh(graveCrownGeo,m);
+    crown.position.y=1.42;crown.scale.z=0.31;crown.castShadow=true;g.add(crown);
+    if(i%4===0) {
+      const inset=new THREE.Mesh(new THREE.BoxGeometry(0.50,0.035,0.035),
+        new THREE.MeshStandardMaterial({color:0x24232a,roughness:1}));
+      inset.position.set(0,0.95,0.165);g.add(inset);
+    }
+  }
+  graveyard.add(g);
+});
+
+
 // 3D Translucent Acrylic Maze Walls (walk around corridors OR fly over y > 2.6!)
 const mazeGroup = new THREE.Group();
 scene.add(mazeGroup);
