@@ -91,6 +91,7 @@ class RustSparseAdapter {
       this.inner.reset_weights();
     }};
     this.rng={
+      next:()=>this.inner.next_rng(),
       getState:()=>this.inner.get_rng_state(),
       setState:value=>this.inner.set_rng_state(value>>>0)
     };
