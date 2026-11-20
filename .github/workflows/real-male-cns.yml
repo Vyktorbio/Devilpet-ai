@@ -45,16 +45,17 @@ jobs:
       - name: Inspect ACTUAL Arrow schema (do not guess columns)
         run: |
           python - <<'PY'
-          import pyarrow.feather as feather
+          import pyarrow as pa
           for name in ["weights","annotations","neurotransmitters"]:
               path=f"/tmp/malecns-2026/{name}.feather"
-              table=feather.read_table(path, memory_map=True)
-              print(name, "rows=",table.num_rows,"schema=",table.schema)
-              if name=="weights":
-                  assert {"body_pre","body_post","weight"}.issubset(table.column_names),table.column_names
-              if name=="annotations":
-                  assert "bodyId" in table.column_names
-              del table
+              with pa.memory_map(path,"r") as source:
+                  reader=pa.ipc.open_file(source)
+                  cols=reader.schema.names
+                  print(name,"record_batches=",reader.num_record_batches,"columns=",cols)
+                  if name=="weights":
+                      assert {"body_pre","body_post","weight"}.issubset(cols),cols
+                  if name=="annotations":
+                      assert "bodyId" in cols
           PY
       - name: Import EVERY official edge with no additional filtering
         timeout-minutes: 20
