@@ -345,14 +345,6 @@
     <div class="topbar">
       <div class="btn-group">
         <button type="button" id="btn-play" class="active">Pausar</button>
-        <label class="scene-picker" for="scenario-select">Cenário
-<select id="scenario-select" aria-label="Selecionar cenário de treino">
-<option value="cemetery">Cemitério</option>
-<option value="maze">Labirinto</option>
-<option value="ground">Circuito no chão</option>
-<option value="air">Circuito aéreo</option>
-<option value="clean">Arena limpa</option>
-</select></label>
         <button type="button" id="btn-sleep" class="btn-sleep">Descansar (LTM)</button>
         <button type="button" id="btn-cam">Câmera: Longe</button>
         <button type="button" id="btn-mute">Som: Ligado</button>
@@ -974,13 +966,13 @@ function restoreHabitatModules(data){
 
 // The neural engine is independent of scene rendering and geometric events.
 const scenarioWorld=new DevilPetScenarioWorld(THREE,scene);
-let activeScenario='cemetery';
+let activeScenario='clean';
 const cemeteryFloorMaterial=floor.material;
 const neutralFloorMaterial=new THREE.MeshStandardMaterial({color:0x171b25,roughness:0.93});
 function habitatActive(){return activeScenario==='cemetery'||activeScenario==='maze';}
 function ballAvailable(){return ballMesh.visible;}
 function activeTargets(){return habitatActive()?ZONES:scenarioWorld.getTargets();}
-function updateSceneProgress(){document.getElementById('scene-progress').textContent=scenarioWorld.summary();}
+function updateSceneProgress(){document.getElementById('scene-progress').textContent='Arena livre · monte seu ambiente com os botões acima.';}
 function applyScenario(mode){
  const previousScenario=activeScenario;
  activeScenario=scenarioWorld.setMode(mode);
@@ -1011,7 +1003,7 @@ function applyScenario(mode){
  pulseRing.visible=true;
  scene.fog=cemeteryFog;
  scene.background.setHex(0x0b0918);
- document.getElementById('scenario-select').value=activeScenario;
+ // Scenery is user-built, not selected from presets.
  document.querySelector('.hud-overlay').style.display='';
  document.querySelector('.hud-bottom').style.display='';
  updateSceneProgress();
@@ -1973,12 +1965,6 @@ btnPlay.addEventListener('click', () => {
   btnPlay.classList.toggle('active', running);
 });
 
-document.getElementById('scenario-select').addEventListener('change',(event)=>{
-  applyScenario(event.target.value);
-  const names={cemetery:'Cemitério',maze:'Labirinto',ground:'Circuito no chão',air:'Circuito aéreo',clean:'Arena limpa'};
-  statusLine.textContent=names[activeScenario]+': cenário alterado sem reiniciar o cérebro ou apagar memórias.';
-});
-
 document.querySelectorAll('.place-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
@@ -2087,7 +2073,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       longW: Array.from(brain.longW),
       pet, pondState, waterVisits, waterDrinkingSeconds,
        habitatLayout:{forest:forestItems.map(p=>({x:p.x,z:p.z})),shelters:shelterItems.map(p=>({x:p.x,z:p.z}))},shelterVisits,shelterSeconds, score, streak, missionIdx, missionHits, flyPos,
-      scenario:activeScenario, scenarioStats:scenarioWorld.snapshot(),
+      scenario:'clean', scenarioStats:scenarioWorld.snapshot(),
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
       neuroEthology:neuroEthology.snapshot()
     };
@@ -2132,7 +2118,7 @@ document.getElementById('btn-load').addEventListener('click', () => {
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;
     scenarioWorld.restore(d.scenarioStats);
-    applyScenario(d.scenario||'cemetery');
+    applyScenario('clean');
     document.querySelectorAll('.tier-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === brain.tierKey));
     statusLine.textContent = `Pet "${document.getElementById('pet-name').value}" restaurado (${brain.cfg.name}).`;
   } catch (e) {
@@ -2148,7 +2134,7 @@ window.addEventListener('keydown', (e) => {
 
 
 // Keep the original cemetery unless restoring a specific saved scenario.
-applyScenario('cemetery');
+applyScenario('clean');
 
 // The optional neural self-tests remain available as pure functions in the engine,
 // but the intrusive standalone experimental panel has been removed.
