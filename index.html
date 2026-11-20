@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DevilPet AI — Cemitério 3D</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="./vendor/three.min.js"></script>
 <style>
   :root {
     --bg: #0a0d13;
@@ -1958,7 +1958,20 @@ window.addEventListener('keydown', (e) => {
 let rafId = null;
 function animate() {
   rafId = requestAnimationFrame(animate);
-  if (running) stepSimulation();
+  if (running) {
+    try {
+      stepSimulation();
+    } catch (error) {
+      // A Rust trap must not leave the pet frozen or terminate the animation loop.
+      const restored = window.DevilPetRustRecover?.(error) === true;
+      if (!restored) {
+        running = false;
+        btnPlay.textContent = 'Retomar simulação';
+        statusLine.textContent = 'Erro de execução: simulação pausada, memória preservada.';
+        console.error('DevilPet simulation paused safely', error);
+      }
+    }
+  }
   updateCamera();
   renderer.render(scene, camera);
   if (performance.now() - previousAutoSave > 30000) {
@@ -1989,17 +2002,16 @@ window.DevilPetRuntime = {
   installFactory:f=>{window.DevilPetNeuralFactory=f;}
 };
 window.addEventListener('resize', resize);
-window.addEventListener('load', async () => {
+window.addEventListener('load', () => {
   resize();
-  if (localStorage.getItem('drosophila_3d_trainer_v1')) {
-    document.getElementById('btn-load').click();
-  } else {
+  try {
+    if (localStorage.getItem('drosophila_3d_trainer_v1')) {
+      document.getElementById('btn-load').click();
+    }
+  } catch (error) {
+    console.warn('Storage indisponível; pet iniciado em memória volátil',error);
   }
-  // Give the optional Rust engine a short opportunity to initialize before
-  // rendering the first frame. Fail open to the original JS game if unavailable.
-  if (window.DevilPetRustBoot) await Promise.race([
-    window.DevilPetRustBoot, new Promise(resolve=>setTimeout(resolve,2500))
-  ]);
+  // Never wait for WebAssembly to render the pet. JavaScript always starts first.
   lastMetabolismStamp = performance.now();
   if (rafId) cancelAnimationFrame(rafId);
   animate();
@@ -2009,6 +2021,6 @@ window.addEventListener('load', async () => {
 <script src="./ethology.js?v=line1"></script>
 <script src="./ethology-line-chart.js?v=line1"></script>
 <script src="./ethology-lab.js?v=line1"></script>
-<script type="module" src="./wasm-activate.js?v=wasm1"></script>
+<script type="module" src="./wasm-activate.js?v=arch2"></script>
 </body>
 </html>

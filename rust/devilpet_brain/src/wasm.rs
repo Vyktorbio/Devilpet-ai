@@ -48,6 +48,8 @@ impl WasmSparseBrain {
         self.inner.tick=tick as u64;Ok(())
     }
     pub fn get_rng_state(&self)->u32{self.inner.rng.state()}
+    /// The 3D environment uses the same seeded RNG stream for motion.
+    pub fn next_rng(&mut self)->f64{self.inner.rng.next_f64()}
     pub fn set_rng_state(&mut self,v:u32){self.inner.rng.set_state(v);}
     pub fn restore_legacy_json(&mut self,text:&str)->Result<(),JsValue>{
         let cp:JsCheckpoint=serde_json::from_str(text).map_err(err)?;
