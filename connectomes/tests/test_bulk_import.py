@@ -62,7 +62,7 @@ class BulkCsrImportTest(unittest.TestCase):
             self.assertEqual(offsets[-1], size)
             np.testing.assert_array_equal(node_ids, base + np.arange(groups))
             np.testing.assert_array_equal(np.bincount(
-                np.searchsorted(node_ids, pre), minlength=groups
+                np.searchsorted(node_ids, pre.astype(np.uint64)), minlength=groups
             ), np.diff(offsets))
             # Verify all entries (not just a checksum) for selected presynaptic
             # body IDs; duplicate synapses and source input order are retained.
