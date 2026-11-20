@@ -56,10 +56,10 @@ impl Genome {
     }
     pub fn offspring(a: &Self,b:&Self,new_lineage_id: impl Into<String>,seed:u32)->Self {
         let mut rng=Mulberry32::new(seed ^ a.founder_seed ^ b.founder_seed.rotate_left(13));
-        let tier=if rng.next_f64() < .5 {a.tier} else {b.tier};
+        let tier=if rng.next_f64() < 0.5 {a.tier} else {b.tier};
         // Inherit a valid complete circadian schedule from one parent.
         // A naive hour-by-hour crossover can accidentally produce sleep == wake.
-        let circadian=if rng.next_f64() < .5 {
+        let circadian=if rng.next_f64() < 0.5 {
             a.circadian.clone()
         } else {
             b.circadian.clone()
@@ -189,7 +189,7 @@ mod tests{
   let g2=Genome::founder("b",Tier::Bee,112,"America/Sao_Paulo");
   let a=PortablePet::new("A",g1);
   let mut b=PortablePet::new("B",g2);
-  b.mind.sparse.long_w.fill(.5);
+  b.mind.sparse.long_w.fill(0.5);
   let child=PortablePet::child_from(&a,&b,"filhote-1",5);
   assert!(child.mind.sparse.long_w.iter().all(|v|*v==0.));
   assert_eq!(child.genome.parent_lineages,vec!["a","b"]);
