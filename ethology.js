@@ -198,11 +198,13 @@
     // Grid occupancy is retained for Shannon and exports; visualization is the unified time series.
   }
   // Visual panel. The existing 3D canvas and all neural code stay unchanged.
-  const panel=document.createElement('section');
+  const panel=document.createElement('details');
   panel.className='card';
   panel.id='ethology-panel';
-  panel.style.marginTop='10px';
-  panel.innerHTML='<h2>Diário automático de Etologia</h2>'+
+  panel.style.marginTop='6px';
+  panel.style.padding='0';
+  panel.innerHTML='<summary style="cursor:pointer;padding:10px 14px;font-size:13px;font-weight:600;list-style-position:inside">Diário automático de Etologia</summary>'+
+    '<div style="padding:4px 14px 14px">'+
     '<p style="font-size:12px;color:var(--muted)">Observações da simulação, não provas de aprendizagem. Somente enquanto o jogo estiver aberto e rodando.</p>'+
     '<div class="metrics">'+
     '<div class="metric"><div class="label">Observação hoje</div><div class="val" id="eth-total">0 s</div></div>'+
@@ -230,7 +232,7 @@
     '<label style="font-size:12px">Importar backup JSON <input type="file" accept=".json,application/json" id="eth-import" style="width:100%;margin-top:4px"></label>'+
     '<button type="button" id="eth-clear">Limpar apenas o diário</button>'+
     '</div></details>'+
-    '<p id="eth-storage" style="font-size:11px;color:var(--muted)"></p>';
+    '<p id="eth-storage" style="font-size:11px;color:var(--muted)"></p></div>';
   document.querySelector('.stage-col').appendChild(panel);
   // Move the preexisting reset control instead of replacing its neural operation.
   const reset=document.getElementById('btn-reset-weights');
