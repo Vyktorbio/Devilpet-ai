@@ -322,6 +322,7 @@
   }
 </style>
 <script src="./neural-engine.js?v=stable-rollback-20261120"></script>
+<script src="./fly/behavior.js"></script>
 </head>
 <body>
 <div class="layout">
@@ -1219,6 +1220,10 @@ function triggerReinforcement(val) {
 
 
 let neuroEthology=new FlyNeuroEthology();
+// Integrated autonomous sensor/motivation controller; original 3D body and neural engine retained.
+let embodiedBehavior = new DevilPetBehavior.FlyBehavior({seed:731});
+let embodiedMotor = null;
+let lastFoodContact = false;
 function runNeuroExperiments() {
   // Paired training, extinction, reversal and retention; deterministic simulated tests.
   const report=[];
@@ -1350,7 +1355,17 @@ function stepSimulation() {
 
   // Natural odor-guided foraging, competing with trained zone preferences.
   const odorSignals=localOlfaction(flyPos);
-  const neuroDecision=neuroEthology.choose(odorSignals,pet);
+  // Real bilateral odor channels from the EXISTING fruit environment; no target coordinates.
+  const motorFrame={
+    odors:odorSignals.map((o,i)=>({...o,identity:'habitat-odor-'+i})),
+    vision:{left:0,right:0,contrast:0},
+    mechanosense:{left:0,right:0,front:Math.max(0,1-(ARENA_RADIUS-Math.max(Math.abs(flyPos.x),Math.abs(flyPos.z)))/4),contact:false},
+    taste:{food:lastFoodContact},
+    proprioception:{energy:pet.energy,rest:pet.rest,curiosity:pet.curiosity},
+    airflow:{forward:0}
+  };
+  embodiedMotor=embodiedBehavior.step(motorFrame,{dt:.016,reward:modToApply});
+    const neuroDecision=neuroEthology.choose(odorSignals,pet);
   const foraging = habitatStep(neuroDecision,odorSignals);
   if(neuroDecision.activity!=='alimentar') {
     foraging.dx=0;foraging.dz=0;foraging.dy=0;
@@ -1514,11 +1529,19 @@ function stepSimulation() {
       const maxTurn = investigatingZone ? 0.06 : 0.18;
       steer += Math.max(-maxTurn, Math.min(maxTurn, diff * 0.22));
     }
+    // New sensor-driven autonomy steers the ORIGINAL DevilPet mesh, not a second fly.
+    // Preserve player commands and the existing trained neural zone responses.
+    if(!callTarget.active&&!nectarState.active&&embodiedMotor){
+      steer+=embodiedMotor.turn*0.12;
+      if(embodiedMotor.mode==='avoid')steer+=0.08;
+      if(embodiedMotor.mode==='rest')actionLabel='Buscando repouso';
+      if(embodiedMotor.mode==='feed'&&pet.energy<0.5)actionLabel='Procurando alimento por odor';
+    }
     flyPos.angle = (flyPos.angle + steer) % (Math.PI * 2);
 
     const restingOnLeaf = (perchedOn !== null && pet.rest < 0.72 && Math.abs(desiredY) < 0.35);
     const baseSpeed = (0.08 + Math.min(0.085, out.dnSpikes * 0.002)) * (0.45 + 0.55 * pet.rest);
-    const speed = feedingNow ? 0.015 : (restingOnLeaf ? 0.004 : (investigatingZone ? 0.009 : baseSpeed * arrivalDamping));
+    const speed = feedingNow ? 0.015 : (restingOnLeaf ? 0.004 : (investigatingZone ? 0.009 : baseSpeed * arrivalDamping)) * (embodiedMotor?.mode==='rest'&&!callTarget.active&&!nectarState.active?0.3:1);
     flyPos.x += Math.cos(flyPos.angle) * speed;
     flyPos.z += Math.sin(flyPos.angle) * speed;
 
@@ -1567,6 +1590,7 @@ function stepSimulation() {
     flyPos.vy = 0;
   }
 
+  lastFoodContact=feedingNow||foraging.feeding;
   // Update 3D body, pitch tilt & articulations
   flyGroup.position.set(flyPos.x, flyPos.y, flyPos.z);
   flyGroup.rotation.y = -flyPos.angle;
@@ -1895,7 +1919,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       longW: Array.from(brain.longW),
       pet, score, streak, missionIdx, missionHits, flyPos,
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
-      neuroEthology:neuroEthology.snapshot()
+      neuroEthology:neuroEthology.snapshot(), embodiedBehavior:embodiedBehavior.snapshot()
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
     statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`;
@@ -1927,6 +1951,7 @@ document.getElementById('btn-load').addEventListener('click', () => {
     btnSleep.classList.toggle('active', sleeping);
     btnSleep.textContent = sleeping ? 'Acordar Pet' : 'Descansar (LTM)';
     neuroEthology=new FlyNeuroEthology();neuroEthology.restore(d.neuroEthology);
+    if(d.embodiedBehavior)embodiedBehavior.restore(d.embodiedBehavior);
     score = d.score || 0; streak = d.streak || 0;
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;
