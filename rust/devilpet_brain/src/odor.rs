@@ -78,7 +78,7 @@ impl FlyNeuroEthology {
   if self.steps==1||self.steps%90==0{
    let exps=actions.map(|a|(a.1*1.6).exp());
    let total=exps.iter().sum::<f64>();let mut r=self.rng.next_f64()*total;
-   for i in 0..4{r-=exps[i];if r<=0.{self.activity=actions[i]0.0;break;}}
+   for i in 0..4{r-=exps[i];if r<=0.{self.activity=actions[i].0;break;}}
   }
   let mut scores=[f64::NEG_INFINITY;4];
   for i in 0..4 {
