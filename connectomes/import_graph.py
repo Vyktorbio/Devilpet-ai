@@ -25,6 +25,8 @@ FORMAT = "devilpet-connectome-csr-v1"
 def _batch(pre, post, weight):
     pre = np.asarray(pre)
     post = np.asarray(post)
+    if not np.issubdtype(pre.dtype, np.integer) or not np.issubdtype(post.dtype, np.integer):
+        raise ValueError("Body IDs must be integer values; float IDs can silently lose precision")
     if np.issubdtype(pre.dtype, np.signedinteger) and np.any(pre < 0):
         raise ValueError('Negative presynaptic body ID')
     if np.issubdtype(post.dtype, np.signedinteger) and np.any(post < 0):
@@ -255,6 +257,7 @@ def build(args):
     del degree
 
     tmp = Path(tempfile.mkdtemp(prefix="dcx-building-", dir=out.parent))
+    targets = weights = None
     try:
         ids.astype("<u8", copy=False).tofile(tmp / "nodes.u64")
         offsets.astype("<u8", copy=False).tofile(tmp / "offsets.u64")
@@ -334,9 +337,7 @@ def build(args):
             flush=True
         )
     except BaseException:
-        # Close memory maps explicitly before removal (Windows compatibility).
-        if targets is not None:
-            del targets, weights
+        # Atomic output: never leave a seemingly valid partial dataset.
         shutil.rmtree(tmp, ignore_errors=True)
         raise
 
