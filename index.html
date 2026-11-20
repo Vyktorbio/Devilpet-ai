@@ -911,7 +911,7 @@ let activeScenario='cemetery';
 const cemeteryFloorMaterial=floor.material;
 const neutralFloorMaterial=new THREE.MeshStandardMaterial({color:0x171b25,roughness:0.93});
 function habitatActive(){return activeScenario==='cemetery'||activeScenario==='maze';}
-function ballAvailable(){return habitatActive()||activeScenario==='ground';}
+function ballAvailable(){return true;}
 function activeTargets(){return habitatActive()?ZONES:scenarioWorld.getTargets();}
 function updateSceneProgress(){document.getElementById('scene-progress').textContent=scenarioWorld.summary();}
 function applyScenario(mode){
@@ -922,34 +922,30 @@ function applyScenario(mode){
    ballState={x:0,z:-5,vx:0,vz:0};
    ballMesh.position.set(ballState.x,BALL_R,ballState.z);
  }
- if(!home){
-   placeMode=activeScenario==='ground'?'ball':'none';
- }else if(placeMode==='none'){
-   placeMode='nectar';
- }
+ // All training controls remain enabled, regardless of scenery.
+ if(placeMode==='none')placeMode='nectar';
  document.querySelectorAll('.place-btn').forEach(btn=>{
-   const enabled=home||(activeScenario==='ground'&&btn.dataset.place==='ball');
-   btn.disabled=!enabled;
-   btn.classList.toggle('active',enabled&&btn.dataset.place===placeMode);
+   btn.disabled=false;
+   btn.classList.toggle('active',btn.dataset.place===placeMode);
  });
  cemeteryProps.visible=home;
  mazeEnabled=activeScenario==='maze';
  mazeGroup.visible=mazeEnabled;
- floor.visible=activeScenario!=='clean';
- floor.material=home?cemeteryFloorMaterial:neutralFloorMaterial;
- arenaBoundaries.visible=activeScenario!=='clean';
+ floor.visible=true;
+ floor.material=cemeteryFloorMaterial;
+ arenaBoundaries.visible=true;
  ballMesh.visible=ballAvailable();
- customGroup.visible=home;
- nectarGroup.visible=home&&nectarState.active;
- callRing.visible=home;
- if(!home)callTarget.active=false;
- trailLine.visible=activeScenario!=='clean';
- pulseRing.visible=activeScenario!=='clean';
- scene.fog=activeScenario==='clean'?null:cemeteryFog;
- scene.background.setHex(activeScenario==='clean'?0x11151e:home?0x0b0918:0x0e1421);
+ customGroup.visible=true;
+ nectarGroup.visible=nectarState.active;
+ callRing.visible=true;
+ // The call target remains available in every scenario.
+ trailLine.visible=true;
+ pulseRing.visible=true;
+ scene.fog=cemeteryFog;
+ scene.background.setHex(0x0b0918);
  document.getElementById('scenario-select').value=activeScenario;
- document.querySelector('.hud-overlay').style.display=activeScenario==='clean'?'none':'';
- document.querySelector('.hud-bottom').style.display=activeScenario==='clean'?'none':'';
+ document.querySelector('.hud-overlay').style.display='';
+ document.querySelector('.hud-bottom').style.display='';
  updateSceneProgress();
 }
 
@@ -1431,9 +1427,9 @@ function stepSimulation() {
   }
 
   // Natural odor-guided foraging, competing with trained zone preferences.
-  const odorSignals=localOlfaction(flyPos);
+  const odorSignals=habitatActive()?localOlfaction(flyPos):HABITAT_FRUITS.map(()=>({food:0,left:0,right:0}));
   const neuroDecision=neuroEthology.choose(odorSignals,pet);
-  const foraging = habitatStep(neuroDecision,odorSignals);
+  const foraging = habitatActive()?habitatStep(neuroDecision,odorSignals):{dx:0,dy:0,dz:0,feeding:false};
   if(neuroDecision.activity!=='alimentar') {
     foraging.dx=0;foraging.dz=0;foraging.dy=0;
   }
@@ -1461,7 +1457,7 @@ function stepSimulation() {
   }
 
   let feedingNow = false;
-  if (habitatActive() && nectarState.active && !sleeping) {
+  if (nectarState.active && !sleeping) {
     const dx = nectarState.x - flyPos.x;
     const dz = nectarState.z - flyPos.z;
     const dN = Math.hypot(dx, dz);
@@ -1482,7 +1478,7 @@ function stepSimulation() {
         statusLine.textContent = 'Seu pet terminou a gota de sangue!';
       }
     }
-  } else if (!sleeping && habitatActive() && callTarget.active) {
+  } else if (!sleeping && callTarget.active) {
     const dx = callTarget.x - flyPos.x;
     const dz = callTarget.z - flyPos.z;
     const dC = Math.hypot(dx, dz);
@@ -1512,7 +1508,7 @@ function stepSimulation() {
   }
 
   function resolveMazeCollision(obj, rad, bounceVel = false) {
-    if(!mazeEnabled&&activeScenario!=='ground'&&(!habitatActive()||!customPillars.length))return false;
+    if(!mazeEnabled&&activeScenario!=='ground'&&!customPillars.length)return false;
     let hit=false;
     for (const w of (mazeEnabled?MAZE_WALLS:[])) {
       const hx = w.w * 0.5 + rad;
@@ -1532,7 +1528,7 @@ function stepSimulation() {
         hit = true;
       }
     }
-    for (const p of (habitatActive()?customPillars:[])) {
+    for (const p of customPillars) {
       const dx = obj.x - p.x;
       const dz = obj.z - p.z;
       const dist = Math.hypot(dx, dz);
@@ -1762,8 +1758,7 @@ const hitPt = new THREE.Vector3();
 let dragging = false, prevX = 0, prevY = 0, downX = 0, downY = 0;
 
 function handleViewportClick(clientX, clientY) {
-  // Only the rolling ball may be placed in the ground circuit.
-  if(!habitatActive()&&!(activeScenario==='ground'&&placeMode==='ball'))return;
+  // Training objects can be placed on the same floor in every scene.
   const rect = renderer.domElement.getBoundingClientRect();
   pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
   pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
