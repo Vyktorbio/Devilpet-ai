@@ -7,6 +7,10 @@ on:
     paths:
       - 'fly/behavior.js'
       - 'fly/behavior.test.cjs'
+      - 'fly/integration.test.cjs'
+      - 'fly/body.js'
+      - 'fly/lab.html'
+      - 'environment/world-state.js'
       - 'fly/sensors.js'
       - '.github/workflows/behavior-tests.yml'
   workflow_dispatch:
@@ -23,5 +27,9 @@ jobs:
         run: node --check fly/behavior.js
       - name: Check sensor syntax
         run: node --check fly/sensors.js
+      - name: Check body syntax
+        run: node --check fly/body.js
       - name: Run behavior tests
         run: node fly/behavior.test.cjs
+      - name: Run embodied integration test
+        run: node fly/integration.test.cjs
