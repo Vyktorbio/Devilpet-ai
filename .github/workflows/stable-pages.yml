@@ -1,0 +1,85 @@
+name: DevilPet 3D — stable pre-connectome release
+
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "neural-engine.js"
+      - "ethology*.js"
+      - "ethology-analytics.test.cjs"
+      - "vendor/**"
+      - "tests/stable-rollback-browser.mjs"
+      - ".github/workflows/stable-pages.yml"
+      - ".github/workflows/python-pages.yml"
+      - ".github/workflows/real-male-cns.yml"
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "neural-engine.js"
+      - "ethology*.js"
+      - "ethology-analytics.test.cjs"
+      - "vendor/**"
+      - "tests/stable-rollback-browser.mjs"
+      - ".github/workflows/stable-pages.yml"
+      - ".github/workflows/python-pages.yml"
+      - ".github/workflows/real-male-cns.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: devilpet-stable-pages
+  cancel-in-progress: true
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser test runner (no Rust, Python or connectome required)
+        run: npm install --no-save --no-audit --no-fund --package-lock=false playwright-core@1.56.1
+      - name: Test existing ethology analytics
+        run: node ethology-analytics.test.cjs
+      - name: Create standalone stable website
+        run: |
+          set -euo pipefail
+          mkdir -p _site/vendor
+          cp index.html neural-engine.js ethology-analytics.js ethology.js ethology-line-chart.js ethology-lab.js _site/
+          cp vendor/three.min.js vendor/LICENSE-three.txt _site/vendor/
+          touch _site/.nojekyll
+          test -s _site/index.html
+          test -s _site/neural-engine.js
+          test -s _site/vendor/three.min.js
+          ! grep -Eq 'connectome-bridge|wasm-activate|fly/sensors|fly/agent|Python CNS|CNS experimental' _site/index.html
+          test ! -e _site/fly
+          test ! -e _site/connectomes
+          test ! -e _site/python
+          test ! -e _site/rust
+      - name: Regression - 3D fly must not pause unexpectedly
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8137 --bind 127.0.0.1 --directory _site >/tmp/devilpet-stable-http.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 2
+          node tests/stable-rollback-browser.mjs
+      - name: Upload GitHub Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
