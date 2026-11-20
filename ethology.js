@@ -154,7 +154,7 @@
       'application/json;charset=utf-8');
   }
   function csv() {
-    const header=['data_iso','x','y','z','estado','guiado','energia','descanso','vinculo','arquitetura','local','poleiro'];
+    const header=['data_iso','x','y','z','estado','guiado','energia','descanso','vinculo','arquitetura','local','poleiro','curiosidade'];
     const rows=data.samples.map(s=>header.map((_,i)=>String(s[i]??'').replace(/"/g,'""')).map(v=>'"'+v+'"').join(';'));
     download('devilpet-etologia-'+dayKey(new Date())+'.csv','\uFEFF'+[header.join(';'),...rows].join('\r\n'),'text/csv;charset=utf-8');
   }
@@ -195,7 +195,7 @@
     fill('eth-events',data.events.slice(-12).reverse().map(x=>
       new Date(x.time).toLocaleString('pt-BR')+' — '+x.type+(x.detail?' · '+x.detail:'')),
       'Sem eventos registrados ainda.');
-    // Heat map data is retained for future scientific plots, but the grid is hidden by user choice.
+    // Grid occupancy is retained for Shannon and exports; visualization is the unified time series.
   }
   // Visual panel. The existing 3D canvas and all neural code stay unchanged.
   const panel=document.createElement('section');
@@ -330,7 +330,7 @@
       lastSample=now;
       data.samples.push([new Date().toISOString(),+flyPos.x.toFixed(3),+flyPos.y.toFixed(3),+flyPos.z.toFixed(3),
         state.name,assisted?1:0,+pet.energy.toFixed(4),+pet.rest.toFixed(4),+pet.bond.toFixed(4),brain.tierKey,area,
-        state.perch ? state.perch.label : '']);
+        state.perch ? state.perch.label : '', +pet.curiosity.toFixed(4)]);
       limit();
     }
     if(now-lastRender>5000){lastRender=now;observations(d,state);render();}
