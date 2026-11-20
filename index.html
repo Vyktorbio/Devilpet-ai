@@ -322,6 +322,10 @@
   }
 </style>
 <script src="./neural-engine.js"></script>
+<script src="./environment/world3d.js?v=separation1"></script>
+<script src="./environment/world-state.js?v=separation1"></script>
+<script src="./fly/sensors.js?v=separation1"></script>
+<script src="./fly/agent.js?v=separation1"></script>
 </head>
 <body>
 <div class="layout">
@@ -443,6 +447,11 @@
     </details>
     <div id="brain-runtime" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted)">Motor: JavaScript (carregando Rust…)</div>
     <a href="./connectomes/" style="display:inline-block;font-size:12px;margin-top:8px;color:#a9bdff">Laboratório dos conectomas completos (2026)</a>
+    <details id="fly-sensors-details" style="margin-top:10px">
+      <summary>Órgãos sensoriais da mosca (separados do 3D)</summary>
+      <p style="font-size:11px;color:var(--muted)">Antenas olfativas, visão, mecanorreceptores, tato, paladar, propriocepção e relógio circadiano. Leituras virtuais, não medições biológicas calibradas.</p>
+      <p id="fly-sensors-values" style="font-size:12px;line-height:1.5">Aguardando amostras sensoriais…</p>
+    </details>
 
   </div>
 </div>
@@ -550,46 +559,13 @@ function makeEyeTexture() {
 // ============================================================================
 // 4. Upgraded Three.js 3D Botanical Terrarium & Detailed Drosophila
 // ============================================================================
+// Three.js scene/camera/lights/renderer live in an independent environment module.
 const viewport = document.getElementById('viewport');
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0918);
-scene.fog = new THREE.FogExp2(0x130e20, 0.012);
+const world3D = DevilPetWorld3D.create({THREE,viewport});
+const {scene,camera,renderer,hemiLight,keyLight,rimLight} = world3D;
+let camMode = 'far', camYaw = 0.72, camPitch = 0.58, camDist = 35.5;
+const ARENA_RADIUS = 23.0;
 
-const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 180);
-let camMode = 'far'; // 'far' | 'orbit' | 'top' | 'follow'
-let camYaw = 0.72, camPitch = 0.58, camDist = 35.5;
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
-viewport.appendChild(renderer.domElement);
-
-// 3-Point Studio Lighting (transitions smoothly between Day and Night/Sleep)
-const hemiLight = new THREE.HemisphereLight(0x9c9edc, 0x1c1724, 0.87);
-scene.add(hemiLight);
-
-const keyLight = new THREE.DirectionalLight(0xb8b5ed, 1.15);
-keyLight.position.set(14, 26, 13);
-keyLight.castShadow = true;
-keyLight.shadow.mapSize.width = 1024;
-keyLight.shadow.mapSize.height = 1024;
-keyLight.shadow.camera.near = 2;
-keyLight.shadow.camera.far = 65;
-keyLight.shadow.camera.left = -19;
-keyLight.shadow.camera.right = 19;
-keyLight.shadow.camera.top = 19;
-keyLight.shadow.camera.bottom = -19;
-scene.add(keyLight);
-
-const rimLight = new THREE.PointLight(0x9c75e8, 1.2, 32);
-rimLight.position.set(-9, 7, -8);
-scene.add(rimLight);
-
-// Expanded square cemetery; the neural model is intentionally untouched.
-const ARENA_RADIUS = 23.0; // square half-width: 46 x 46 scene units
 const floorTex = makeFloorTexture();
 floorTex.repeat.set(1.5,1.5);
 const floor = new THREE.Mesh(
@@ -1174,21 +1150,8 @@ function triggerReinforcement(val) {
   let habitatCooldown=0;
   // Environmental field: coordinates are only used by the world to generate sensory input.
   // The agent receives local odor intensity and left/right antenna differences.
-  function odorAt(x,z,i) {
-    const f=HABITAT_FRUITS[i];
-    const d2=(x-f.x)**2+(z-f.z)**2;
-    return f.odor*f.food/(1+0.085*d2);
-  }
-  function localOlfaction(pos) {
-    const a=pos.angle,offset=0.7;
-    const left={x:pos.x-Math.sin(a)*offset,z:pos.z+Math.cos(a)*offset};
-    const right={x:pos.x+Math.sin(a)*offset,z:pos.z-Math.cos(a)*offset};
-    return HABITAT_FRUITS.map((f,i)=>({
-      food:Math.max(0,odorAt(pos.x,pos.z,i)),
-      left:odorAt(left.x,left.z,i),
-      right:odorAt(right.x,right.z,i)
-    }));
-  }
+  // Olfactory gradients were moved to fly/sensors.js; the environment only
+  // defines physical food sources and food consumption/contact below.
   function habitatStep(decision,sensory) {
     if(sleeping)return {dx:0,dz:0,dy:0,feeding:false};
     HABITAT_FRUITS.forEach((f,i)=>{
@@ -1222,6 +1185,27 @@ function triggerReinforcement(val) {
 
 
 let neuroEthology=new FlyNeuroEthology();
+// The fly is independent of the 3-D renderer. Neural ports always refer to
+// the current engine, including Rust/JS switches and checkpoint restoration.
+const flyAgent = new DevilPetFly.FlyAgent({
+  getBrain:()=>brain,getOdor:()=>neuroEthology,sensors:DevilPetSensors
+});
+let lastSensorPanelUpdate = 0;
+function updateSensorPanel(frame){
+  if(performance.now()-lastSensorPanelUpdate<800)return;
+  lastSensorPanelUpdate=performance.now();
+  const el=document.getElementById('fly-sensors-values');
+  if(!el)return;
+  const odors=frame.odors.reduce((s,v)=>s+v.food,0);
+  const v=frame.vision,m=frame.mechanosense,p=frame.proprioception;
+  el.textContent='Antenas: '+odors.toFixed(3)+
+    ' · Visão: '+v.contrast.toFixed(2)+
+    ' · Obstáculo frontal: '+m.front.toFixed(2)+
+    ' · Contato: '+(m.contact?'sim':'não')+
+    ' · Altitude: '+Math.round(p.altitude*100)+'%'+
+    ' · Alimento: '+(frame.taste.food?'sim':'não')+
+    ' · Relógio local: '+(frame.clock.localPhase===null?'indisponível':Math.round(frame.clock.localPhase*24)+'h');
+}
 function runNeuroExperiments() {
   // Paired training, extinction, reversal and retention; deterministic simulated tests.
   const report=[];
@@ -1306,20 +1290,26 @@ function stepSimulation() {
   // Central-complex-inspired heading integrator: noisy path integration.
   neuroEthology.heading=0.97*neuroEthology.heading+0.03*flyPos.angle;
 
-  // 3D Sensory cues (3 floor zones + 1 aerial sky ring + play ball)
-  const cues = { cyan: 0, amber: 0, red: 0, ball: 0, sky: 0 };
-  for (const z of ZONES) {
-    const d3 = Math.hypot(flyPos.x - z.x, flyPos.y - z.y, flyPos.z - z.z);
-    cues[z.id] = Math.max(0, 1.0 - d3 / 11.5);
-  }
-  const distBall = Math.hypot(flyPos.x - ballState.x, flyPos.y, flyPos.z - ballState.z);
-  cues.ball = Math.max(0, 1.0 - distBall / 9.0);
-
+  // World -> separate sensory organs -> independent fly -> brain.
+  // No food coordinates, 3-D geometry or renderer objects reach the neural port.
+  const nowDate = new Date();
+  const worldView = DevilPetWorldState.snapshot({
+    radius:ARENA_RADIUS,zones:ZONES,fruits:HABITAT_FRUITS,
+    perches:PERCHES,ball:ballState,blood:nectarState,
+    walls:mazeEnabled?MAZE_WALLS:[],pillars:mazeEnabled?customPillars:[],
+    ambientLight:keyLight.intensity/1.65
+  });
+  const sensorFrame = flyAgent.perceive(worldView,flyPos,pet,{
+    sleeping,localHour:nowDate.getHours(),localMinute:nowDate.getMinutes()
+  });
+  updateSensorPanel(sensorFrame);
   const modToApply = sleeping ? 0 : pendingMod;
   pendingMod = 0;
   const cons = sleeping ? 0.85 : 0.02;
-
-  const out = brain.stepWindow(cues, modToApply, cons, !sleeping, 15.0);
+  const {out,decision:neuroDecision} = flyAgent.react(sensorFrame,pet,{
+    modulation:modToApply,consolidate:cons,sleeping,durationMs:15
+  });
+  const odorSignals = sensorFrame.odors;
 
   // 3D Emergent steering (X, Y altitude, Z)
   let desiredX = 0, desiredY = 0, desiredZ = 0;
@@ -1352,8 +1342,6 @@ function stepSimulation() {
   }
 
   // Natural odor-guided foraging, competing with trained zone preferences.
-  const odorSignals=localOlfaction(flyPos);
-  const neuroDecision=neuroEthology.choose(odorSignals,pet);
   const foraging = habitatStep(neuroDecision,odorSignals);
   if(neuroDecision.activity!=='alimentar') {
     foraging.dx=0;foraging.dz=0;foraging.dy=0;
@@ -1634,31 +1622,11 @@ function stepSimulation() {
 
 }
 
-function updateCamera() {
-  if (camMode === 'orbit' || camMode === 'far') {
-    const cx = Math.cos(camYaw) * Math.cos(camPitch) * camDist;
-    const cy = Math.sin(camPitch) * camDist;
-    const cz = Math.sin(camYaw) * Math.cos(camPitch) * camDist;
-    camera.position.lerp(new THREE.Vector3(cx, cy, cz), 0.14);
-    camera.lookAt(0, 0.35, 0);
-  } else if (camMode === 'top') {
-    camera.position.lerp(new THREE.Vector3(0, Math.max(22, camDist), 0.1), 0.12);
-    camera.lookAt(0, 0, 0);
-  } else {
-    const tx = flyPos.x - Math.cos(flyPos.angle) * 5.4;
-    const tz = flyPos.z - Math.sin(flyPos.angle) * 5.4;
-    camera.position.lerp(new THREE.Vector3(tx, flyPos.y + 2.8, tz), 0.1);
-    camera.lookAt(flyPos.x, flyPos.y + 0.5, flyPos.z);
-  }
-}
-
-function resize() {
-  const w = viewport.clientWidth;
-  const h = viewport.clientHeight;
-  camera.aspect = w / Math.max(1, h);
-  camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
-}
+// Camera motion and resizing belong to the Three.js environment, not the fly.
+const updateCamera = () => world3D.updateCamera({
+  mode:camMode,yaw:camYaw,pitch:camPitch,distance:camDist,fly:flyPos
+});
+const resize = () => world3D.resize();
 
 // Orbit + Zoom + 3D Raycaster Click-to-Place
 let placeMode = 'nectar';
@@ -1974,7 +1942,7 @@ function animate() {
     }
   }
   updateCamera();
-  renderer.render(scene, camera);
+  world3D.render();
   if (performance.now() - previousAutoSave > 30000) {
     previousAutoSave = performance.now();
     autoSavePet();
