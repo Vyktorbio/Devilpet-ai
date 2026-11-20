@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - "index.html"
+      - "fly/**"
+      - "environment/**"
       - "wasm-activate.js"
       - "rust/devilpet_brain/**"
       - ".github/workflows/rust-wasm-pages.yml"
@@ -11,6 +13,8 @@ on:
     branches: [main]
     paths:
       - "index.html"
+      - "fly/**"
+      - "environment/**"
       - "wasm-activate.js"
       - "rust/devilpet_brain/**"
       - ".github/workflows/rust-wasm-pages.yml"
@@ -92,13 +96,19 @@ jobs:
       - name: Install pinned, local rendering assets and browser smoke runner
         run: |
           npm install --no-save --no-audit --no-fund --package-lock=false three@0.128.0 playwright-core@1.56.1
+      - name: Run independent sensory-organ and whole-CNS protocol unit tests
+        run: |
+          node fly/sensors.test.cjs
+          node fly/connectome-bridge.test.cjs
       - name: Create standalone Pages artifact
         run: |
-          mkdir -p _site/rust/devilpet_brain/pkg _site/vendor _site/connectomes
+          mkdir -p _site/rust/devilpet_brain/pkg _site/vendor _site/connectomes _site/fly _site/environment
           cp index.html ./*.js _site/
           cp node_modules/three/build/three.min.js _site/vendor/three.min.js
           cp node_modules/three/LICENSE _site/vendor/LICENSE-three.txt
           cp connectomes/index.html connectomes/datasets.json _site/connectomes/
+          cp fly/*.js _site/fly/
+          cp environment/*.js _site/environment/
           cp rust/devilpet_brain/pkg/devilpet_brain.js _site/rust/devilpet_brain/pkg/
           cp rust/devilpet_brain/pkg/devilpet_brain_bg.wasm _site/rust/devilpet_brain/pkg/
           touch _site/.nojekyll
@@ -107,6 +117,10 @@ jobs:
           test -s _site/rust/devilpet_brain/pkg/devilpet_brain_bg.wasm
           test -s _site/connectomes/index.html
           test -s _site/connectomes/datasets.json
+          test -s _site/fly/agent.js
+          test -s _site/fly/sensors.js
+          test -s _site/fly/connectome-bridge.js
+          test -s _site/environment/world3d.js
       - name: Browser smoke test including 3D rendering and JS/Rust fallback
         run: |
           python3 -m http.server 8137 --bind 127.0.0.1 --directory _site >/tmp/devilpet-http.log 2>&1 &
