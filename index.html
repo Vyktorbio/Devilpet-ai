@@ -326,6 +326,7 @@
 <script src="./environment/world-state.js?v=separation1"></script>
 <script src="./fly/sensors.js?v=separation1"></script>
 <script src="./fly/agent.js?v=separation1"></script>
+<script src="./fly/connectome-bridge.js?v=cns1"></script>
 </head>
 <body>
 <div class="layout">
@@ -447,6 +448,18 @@
     </details>
     <div id="brain-runtime" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted)">Motor: JavaScript (carregando Rust…)</div>
     <a href="./connectomes/" style="display:inline-block;font-size:12px;margin-top:8px;color:#a9bdff">Laboratório dos conectomas completos (2026)</a>
+    <details id="cns-bridge-details" style="margin-top:12px">
+      <summary>Conectoma real: serviço Rust (experimental)</summary>
+      <p style="font-size:11px;color:var(--muted)">Requer o grafo CNS oficial carregado num computador ou servidor e IDs sensoriais/motores identificados. A propagação anatômica ainda não é fisiologia validada.</p>
+      <label for="cns-endpoint" style="display:block;font-size:12px;margin-bottom:5px">Serviço local ou HTTPS</label>
+      <input id="cns-endpoint" type="url" value="http://127.0.0.1:8326" style="padding:8px;max-width:330px;width:100%;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:inherit">
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px">
+        <button id="cns-connect" type="button">Conectar grafo</button>
+        <button id="cns-activate" type="button" disabled>Ativar controle CNS</button>
+        <button id="cns-disconnect" type="button" disabled>Desconectar</button>
+      </div>
+      <p id="cns-bridge-status" role="status" aria-live="polite" style="font-size:11px;color:var(--muted);line-height:1.5">Desconectado. O cérebro reduzido continua ativo.</p>
+    </details>
     <details id="fly-sensors-details" style="margin-top:10px">
       <summary>Órgãos sensoriais da mosca (separados do 3D)</summary>
       <p style="font-size:11px;color:var(--muted)">Antenas olfativas, visão, mecanorreceptores, tato, paladar, propriocepção e relógio circadiano. Leituras virtuais, não medições biológicas calibradas.</p>
@@ -1190,6 +1203,39 @@ let neuroEthology=new FlyNeuroEthology();
 const flyAgent = new DevilPetFly.FlyAgent({
   getBrain:()=>brain,getOdor:()=>neuroEthology,sensors:DevilPetSensors
 });
+const cnsBridge = new DevilPetConnectomeBridge.ConnectomeBridge();
+const cnsConnect=document.getElementById('cns-connect');
+const cnsActivate=document.getElementById('cns-activate');
+const cnsDisconnect=document.getElementById('cns-disconnect');
+const cnsBridgeStatus=document.getElementById('cns-bridge-status');
+const cnsEndpoint=document.getElementById('cns-endpoint');
+function updateCnsUI(){
+  const state=cnsBridge.status();
+  cnsConnect.disabled=state.connected;
+  cnsDisconnect.disabled=!state.connected;
+  cnsActivate.disabled=!state.connected || (!state.active && state.lastActivity<=0);
+  cnsActivate.textContent=state.active?'Usar cérebro reduzido':'Ativar controle CNS';
+  cnsBridgeStatus.textContent=state.connected
+    ? (state.active?'Controle CNS experimental ativo. ':'Grafo observado, sem controlar voo. ')+
+      state.dataset_id+' · '+state.node_count.toLocaleString('pt-BR')+
+      ' nós · '+state.edge_count.toLocaleString('pt-BR')+' arestas'+
+      (state.error?' · '+state.error:'')
+    : state.error||'Desconectado. O cérebro reduzido continua ativo.';
+}
+cnsConnect.addEventListener('click',async()=>{
+  cnsBridgeStatus.textContent='Verificando grafo real e mapeamento dos neurônios…';
+  try{await cnsBridge.connect(cnsEndpoint.value.trim());}
+  catch(e){cnsBridge.disconnect();cnsBridge.error=e.message||String(e);}
+  updateCnsUI();
+});
+cnsActivate.addEventListener('click',()=>{
+  try{if(cnsBridge.active)cnsBridge.deactivate();else cnsBridge.activate();}
+  catch(e){cnsBridge.error=e.message||String(e);}
+  updateCnsUI();
+});
+cnsDisconnect.addEventListener('click',()=>{cnsBridge.disconnect();updateCnsUI();});
+setInterval(updateCnsUI,1250);
+
 let lastSensorPanelUpdate = 0;
 function updateSensorPanel(frame){
   if(performance.now()-lastSensorPanelUpdate<800)return;
@@ -1303,12 +1349,17 @@ function stepSimulation() {
     sleeping,localHour:nowDate.getHours(),localMinute:nowDate.getMinutes()
   });
   updateSensorPanel(sensorFrame);
+  void cnsBridge.tick(sensorFrame);
+  const cnsMotor = sleeping ? null : cnsBridge.motor();
   const modToApply = sleeping ? 0 : pendingMod;
   pendingMod = 0;
   const cons = sleeping ? 0.85 : 0.02;
-  const {out,decision:neuroDecision} = flyAgent.react(sensorFrame,pet,{
-    modulation:modToApply,consolidate:cons,sleeping,durationMs:15
-  });
+  // The reduced network stays frozen when an actual CNS graph controls the fly.
+  const {out,decision:neuroDecision}=cnsMotor
+    ? {out:{dnSpikes:0},decision:{activity:'explorar',target:-1,odorValue:0}}
+    : flyAgent.react(sensorFrame,pet,{
+        modulation:modToApply,consolidate:cons,sleeping,durationMs:15
+      });
   const odorSignals = sensorFrame.odors;
 
   // 3D Emergent steering (X, Y altitude, Z)
