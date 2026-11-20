@@ -94,3 +94,40 @@ jobs:
           print("PASS: reviewed-port CNS service, CORS, real CSR processing, bounded motor protocol")
           PY
 
+
+  official-annotations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Arrow reader
+        run: python -m pip install "pyarrow>=18,<26"
+      - name: Download official 2026 Male CNS neuron annotations, not simulated data
+        run: |
+          mkdir -p /tmp/devilpet-cns data-review
+          curl --fail --location --retry 3 --max-time 240 \
+            "https://storage.googleapis.com/flyem-male-cns/v1.0/connectome-data/flat-connectome/body-annotations-male-cns-v1.0-minconf-0.5.feather" \
+            -o /tmp/devilpet-cns/male-annotations.feather
+          test -s /tmp/devilpet-cns/male-annotations.feather
+          python connectomes/extract_ports.py \
+            --annotations /tmp/devilpet-cns/male-annotations.feather \
+            --out data-review/male-cns-candidates.csv
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=json.loads(Path("data-review/male-cns-candidates.provenance.json").read_text())
+          assert p["counts"]["total_rows"]>150000
+          assert p["counts"]["candidate_sensory"]>0
+          assert p["counts"]["candidate_motor"]>0
+          print("OFFICIAL MALE CNS ANNOTATIONS AUDITED",p["counts"])
+          print("This does NOT assign motor directions or activate the real CNS.")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: male-cns-2026-real-neuron-candidates
+          path: data-review/
+          retention-days: 14
