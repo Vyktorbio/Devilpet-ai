@@ -57,6 +57,64 @@ try {
   await page.waitForFunction(()=>window.DevilPetRustStatus().mode==='javascript',{timeout:10000});
   assert.equal(await page.evaluate(()=>!!window.DevilPetRuntime.getBrain().isRust),false);
   assert.ok(!errors.length,'Browser runtime error: '+errors.join(' | '));
+  // Browser-only mock verifies the transport/control contract. It does not
+  // constitute real connectome data or anatomical validation.
+  let cnsRequests=0;
+  await page.route('http://127.0.0.1:8326/**',async route=>{
+    const uri=route.request().url();
+    const headers={
+      'Access-Control-Allow-Origin':'*',
+      'Access-Control-Allow-Headers':'Content-Type',
+      'Access-Control-Allow-Methods':'GET, POST, OPTIONS',
+      'Content-Type':'application/json'
+    };
+    if(route.request().method()==='OPTIONS'){
+      await route.fulfill({status:204,headers});return;
+    }
+    if(uri.endsWith('/health')){
+      await route.fulfill({status:200,headers,body:JSON.stringify({
+        schema:'devilpet-cns-server-v1',
+        status:'graph_loaded_ports_reviewed',
+        dataset_id:'male-cns-v1.0-2026',dataset_version:'v1.0',
+        dataset_source:'https://male-cns.janelia.org/download/',
+        node_count:166691,edge_count:152000000,
+        available_motors:['forward','turn_left','turn_right','lift']
+      })});return;
+    }
+    if(uri.endsWith('/step')){
+      const data=route.request().postDataJSON();
+      cnsRequests++;
+      await route.fulfill({status:200,headers,body:JSON.stringify({
+        schema:'devilpet-cns-output-v1',
+        sample_id:data.sample_id,
+        dataset_id:'male-cns-v1.0-2026',dataset_version:'v1.0',
+        motor:{forward:.8,turn:.12,lift:.32,activity:1.4}
+      })});return;
+    }
+    await route.fulfill({status:404,headers,body:'{}'});
+  });
+  await page.locator('#cns-bridge-details summary').click();
+  await page.locator('#cns-connect').click();
+  await page.waitForFunction(()=>document.getElementById('cns-bridge-status')?.textContent.includes('male-cns-v1.0-2026'),
+    {timeout:12000});
+  await page.waitForFunction(()=>!document.getElementById('cns-activate').disabled,
+    {timeout:14000});
+  await page.locator('#cns-activate').click();
+  await page.waitForFunction(()=>document.getElementById('cns-bridge-status')?.textContent.includes('Controle CNS experimental ativo'),
+    {timeout:10000});
+  const cnsTick=await page.evaluate(()=>window.DevilPetRuntime.getBrain().tick);
+  await page.waitForTimeout(750);
+  const frozen=await page.evaluate(()=>window.DevilPetRuntime.getBrain().tick);
+  assert.equal(frozen,cnsTick,'reduced brain must not learn while CNS mode controls body');
+  assert.ok(cnsRequests>0,'sensor vector must be sent to native bridge protocol');
+  await page.locator('#cns-disconnect').click();
+  await page.waitForFunction(()=>document.getElementById('cns-bridge-status')?.textContent.includes('Desconectado'),
+    {timeout:10000});
+  const afterDisconnect=await page.evaluate(()=>window.DevilPetRuntime.getBrain().tick);
+  await page.waitForFunction(previous=>window.DevilPetRuntime.getBrain().tick>previous,
+    afterDisconnect,{timeout:16000});
+  await page.unrouteAll({behavior:'wait'});
+  console.log('PASS: mock transport only; independent sensors, opt-in CNS control and reduced-brain fallback.');
   const catalogResponse=await page.goto('http://127.0.0.1:8137/connectomes/',{
     waitUntil:'domcontentloaded',timeout:15000
   });
