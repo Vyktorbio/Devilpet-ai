@@ -863,40 +863,48 @@ const soilRing=new THREE.Mesh(new THREE.RingGeometry(13.6,15.85,72),
   new THREE.MeshBasicMaterial({color:0x527e39,transparent:true,opacity:0.14,side:THREE.DoubleSide}));
 soilRing.rotation.x=-Math.PI/2;soilRing.position.y=0.025;scene.add(soilRing);
 
-// 3D Botanical Branches & Elevated Leaf Perches across the bigger habitat
-const woodMat = new THREE.MeshStandardMaterial({ color: 0x4b3625, roughness: 0.88 });
-const leafMat = new THREE.MeshStandardMaterial({ color: 0x2e6f48, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
-
+// Three gothic chapel pinnacles replace the botanical perches.
+// Keep the same perch coordinates, heights and radii, so the neural and
+// locomotion behavior can be compared without changing the sensory model.
 const PERCHES = [
-  { id: 'leaf1', label: 'Folha Baixa',  x: -9.8, y: 2.3, z:  5.8, radius: 1.55 },
-  { id: 'leaf2', label: 'Folha Média',  x: 10.2, y: 3.6, z:  5.0, radius: 1.55 },
-  { id: 'leaf3', label: 'Galho Alto',   x: -1.8, y: 5.2, z: -9.6, radius: 1.50 }
+  { id: 'leaf1', label: 'Pináculo da Capela Baixa', x: -9.8, y: 2.3, z: 5.8, radius: 1.55 },
+  { id: 'leaf2', label: 'Pináculo da Capela Média', x: 10.2, y: 3.6, z: 5.0, radius: 1.55 },
+  { id: 'leaf3', label: 'Pináculo da Capela Alta', x: -1.8, y: 5.2, z: -9.6, radius: 1.50 }
 ];
-
-function addBranchAndLeaf(baseX, baseZ, p) {
-  const start = new THREE.Vector3(baseX, 0, baseZ);
-  const end = new THREE.Vector3(p.x, p.y, p.z);
-  const mid = start.clone().lerp(end, 0.5);
-  mid.y += 0.65;
-  const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-  const branch = new THREE.Mesh(new THREE.TubeGeometry(curve, 18, 0.20, 8, false), woodMat);
-  branch.castShadow = true;
-  branch.receiveShadow = true;
-  scene.add(branch);
-
-  const leafGeo = new THREE.SphereGeometry(p.radius, 18, 12);
-  leafGeo.scale(1.28, 0.10, 0.84);
-  const leaf = new THREE.Mesh(leafGeo, leafMat);
-  leaf.position.set(p.x, p.y, p.z);
-  leaf.rotation.y = Math.atan2(p.z - baseZ, p.x - baseX);
-  leaf.castShadow = true;
-  leaf.receiveShadow = true;
-  scene.add(leaf);
+const chapelStone = new THREE.MeshStandardMaterial({color:0x55505e,roughness:.92});
+const chapelTrim = new THREE.MeshStandardMaterial({color:0x777081,roughness:.86});
+const chapelShadow = new THREE.MeshStandardMaterial({color:0x211e2b,roughness:.99});
+function addChapelPinnacle(p){
+  const g=new THREE.Group();g.position.set(p.x,0,p.z);
+  // Tower reaches the old leaf's landing height; the tip rises beside it.
+  const tower=new THREE.Mesh(new THREE.BoxGeometry(1.6,p.y-.12,1.6),chapelStone);
+  tower.position.y=(p.y-.12)/2;tower.castShadow=true;tower.receiveShadow=true;g.add(tower);
+  const footing=new THREE.Mesh(new THREE.BoxGeometry(2.0,.24,2.0),chapelTrim);
+  footing.position.y=.12;g.add(footing);
+  const landing=new THREE.Mesh(new THREE.BoxGeometry(2.12,.18,2.12),chapelTrim);
+  landing.position.y=p.y-.09;landing.receiveShadow=true;g.add(landing);
+  // Narrow gargoyle-like gothic spire at the rear, leaving an open place to land.
+  const backing=new THREE.Mesh(new THREE.BoxGeometry(.55,.9,.5),chapelStone);
+  backing.position.set(0,p.y+.37,-.68);backing.castShadow=true;g.add(backing);
+  const point=new THREE.Mesh(new THREE.ConeGeometry(.46,1.22,4),chapelTrim);
+  point.rotation.y=Math.PI/4;point.position.set(0,p.y+1.40,-.68);
+  point.castShadow=true;g.add(point);
+  for(const side of [-1,1]){
+    const finial=new THREE.Mesh(new THREE.ConeGeometry(.17,.48,4),chapelTrim);
+    finial.rotation.y=Math.PI/4;finial.position.set(side*.85,p.y+.21,-.82);g.add(finial);
+  }
+  // Arched dark opening and a carved cross on the facade.
+  const arch=new THREE.Mesh(new THREE.BoxGeometry(.36,.65,.025),chapelShadow);
+  arch.position.set(0,p.y*.58,.817);g.add(arch);
+  const archPoint=new THREE.Mesh(new THREE.ConeGeometry(.25,.27,3),chapelShadow);
+  archPoint.rotation.z=Math.PI;archPoint.position.set(0,p.y*.58+.44,.83);g.add(archPoint);
+  const upright=new THREE.Mesh(new THREE.BoxGeometry(.09,.52,.055),chapelTrim);
+  upright.position.set(0,p.y*.36,.85);g.add(upright);
+  const arm=new THREE.Mesh(new THREE.BoxGeometry(.32,.08,.055),chapelTrim);
+  arm.position.set(0,p.y*.36+.08,.85);g.add(arm);
+  scene.add(g);
 }
-
-addBranchAndLeaf(-13.8, 8.2, PERCHES[0]);
-addBranchAndLeaf( 14.0, 7.2, PERCHES[1]);
-addBranchAndLeaf( -4.2, -14.2, PERCHES[2]);
+PERCHES.forEach(addChapelPinnacle);
 
 // 3D Translucent Acrylic Maze Walls (walk around corridors OR fly over y > 2.6!)
 const mazeGroup = new THREE.Group();
