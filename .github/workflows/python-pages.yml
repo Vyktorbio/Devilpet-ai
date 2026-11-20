@@ -1,0 +1,94 @@
+name: DevilPet Python CNS and static GitHub Pages
+
+on:
+  pull_request:
+    paths:
+      - "index.html"
+      - "fly/**"
+      - "environment/**"
+      - "python/**"
+      - "connectomes/**"
+      - "vendor/**"
+      - "neural-engine.js"
+      - ".github/workflows/python-pages.yml"
+      - ".github/workflows/rust-wasm-pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "fly/**"
+      - "environment/**"
+      - "python/**"
+      - "connectomes/**"
+      - "vendor/**"
+      - "neural-engine.js"
+      - ".github/workflows/python-pages.yml"
+      - ".github/workflows/rust-wasm-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "devilpet-pages-python"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Python and browser test dependencies (NO Rust compiler)
+        run: |
+          python -m pip install -r python/requirements.txt
+          npm install --no-save --no-audit --no-fund --package-lock=false playwright-core@1.56.1
+      - name: Verify Python CNS reads full-format CSR and rejects unverified ports
+        run: python -m unittest discover -s python/tests -v
+      - name: Verify separate virtual sensory organs and existing fly behavior
+        run: |
+          node fly/sensors.test.cjs
+          node fly/connectome-bridge.test.cjs
+          node fly/headless-demo.cjs > /tmp/devilpet-headless-result.json
+          node ethology-analytics.test.cjs
+      - name: Build website without WASM or Rust assets
+        run: |
+          mkdir -p _site/vendor _site/fly _site/environment _site/connectomes
+          cp index.html ./*.js _site/
+          cp vendor/three.min.js vendor/LICENSE-three.txt _site/vendor/
+          cp fly/*.js _site/fly/
+          cp environment/*.js _site/environment/
+          cp connectomes/index.html connectomes/datasets.json _site/connectomes/
+          touch _site/.nojekyll
+          test -s _site/index.html
+          test -s _site/neural-engine.js
+          test -s _site/fly/connectome-bridge.js
+          test -s _site/vendor/three.min.js
+          ! grep -q 'src="./wasm-activate.js' _site/index.html
+      - name: Browser smoke test - phone viewport, JavaScript fallback, Python protocol
+        run: |
+          python -m http.server 8137 --bind 127.0.0.1 --directory _site >/tmp/devilpet-static.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          sleep 2
+          node fly/python-browser-smoke.mjs
+      - name: Upload Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        name: Publish static DevilPet (Python CNS runs separately)
+        uses: actions/deploy-pages@v4
