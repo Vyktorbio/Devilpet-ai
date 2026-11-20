@@ -321,6 +321,7 @@
     margin-left: 4px;
   }
 </style>
+<script src="./neural-engine.js"></script>
 </head>
 <body>
 <div class="layout">
@@ -357,7 +358,6 @@
     <div class="viewport" id="viewport">
       <div class="hud-overlay">
         <div class="hud-pill" id="hud-zone">Zona atual: <strong>Centro do Cemitério</strong></div>
-        <div class="hud-pill" id="hud-score">Pontos: <strong>0</strong> · Sequência: <strong>0</strong></div>
       </div>
       <div class="hud-bottom">
         <div class="hud-pill" id="hud-action">Ação: <strong>Explorando</strong> · Altitude: <strong>0.0 cm</strong></div>
@@ -415,20 +415,6 @@
       </div>
     </div>
 
-    <div class="mission-box">
-      <div class="mission-title" id="mission-title">Desafio 1: Preferência pelo Alvo Ciano</div>
-      <div class="mission-desc" id="mission-desc">
-        Aplique +1 (PAM) no Anel Ciano e -1 (PPL1) na Zona Vermelha. Depois clique em Descansar para consolidar em LTM.
-      </div>
-      <div class="elig-head">
-        <span>Progresso do Adestramento</span>
-        <span id="v-mission">0 / 5 acertos</span>
-      </div>
-      <div class="bar-track">
-        <div class="bar-fill" id="b-mission" style="width: 0%; background: var(--pos);"></div>
-      </div>
-    </div>
-
     <h2>Arquitetura Cerebral (Expansão KC/MBON)</h2>
     <div class="tier-row">
       <button type="button" class="tier-btn active" data-tier="drosophila">
@@ -451,34 +437,10 @@
     <div class="metrics">
       <div class="metric"><div class="label">Tempo Neural</div><div class="val" id="m-time">0 ms</div></div>
       <div class="metric"><div class="label">Separação (APL)</div><div class="val" id="m-sparse">0%</div></div>
-      <div class="metric"><div class="label">Pref. Ciano</div><div class="val" id="m-pref-cyan">1.000x</div></div>
-      <div class="metric"><div class="label">Pref. Vermelho</div><div class="val" id="m-pref-red">1.000x</div></div>
       <div class="metric"><div class="label">Memória Curta</div><div class="val" id="m-short">0.000</div></div>
       <div class="metric"><div class="label">Memória Longa</div><div class="val" id="m-long">0.000</div></div>
     </div>
 
-    <div class="divider"></div>
-    <h2>Valência Aprendida (MBON) e Motores</h2>
-    <div class="bar-group">
-      <div class="elig-head"><span>MBON Aproximação (Ciano)</span><span id="v-mbon-c">0</span></div>
-      <div class="bar-track"><div class="bar-fill" id="b-mbon-c" style="width: 0%; background: var(--cyan);"></div></div>
-    </div>
-    <div class="bar-group">
-      <div class="elig-head"><span>MBON Aproximação (Âmbar)</span><span id="v-mbon-a">0</span></div>
-      <div class="bar-track"><div class="bar-fill" id="b-mbon-a" style="width: 0%; background: var(--gold);"></div></div>
-    </div>
-    <div class="bar-group">
-      <div class="elig-head"><span>MBON Evitação (Vermelho)</span><span id="v-mbon-r">0</span></div>
-      <div class="bar-track"><div class="bar-fill" id="b-mbon-r" style="width: 0%; background: var(--neg);"></div></div>
-    </div>
-    <div class="bar-group">
-      <div class="elig-head"><span>MBON Voo (Anel Aéreo)</span><span id="v-mbon-s">0</span></div>
-      <div class="bar-track"><div class="bar-fill" id="b-mbon-s" style="width: 0%; background: var(--purple);"></div></div>
-    </div>
-    <div class="bar-group">
-      <div class="elig-head"><span>Descendentes Motores (DNs)</span><span id="v-dn">0</span></div>
-      <div class="bar-track"><div class="bar-fill" id="b-dn" style="width: 0%; background: var(--pos);"></div></div>
-    </div>
   </div>
 </div>
 
@@ -582,199 +544,6 @@ function makeEyeTexture() {
 // ============================================================================
 // 3. Expanded Brain Architecture (48 KC up to 1000 KC + Recurrent Working Memory)
 // ============================================================================
-const TIERS = {
-  drosophila: { name: 'Drosophila',    nKC: 48,   nMBON: 2, fanIn: 4, aplGain: 0.35, recGain: 0.05 },
-  expanded:   { name: 'Expandido',     nKC: 160,  nMBON: 4, fanIn: 3, aplGain: 0.55, recGain: 0.14 },
-  bee:        { name: 'Abelha-Scale',  nKC: 420,  nMBON: 6, fanIn: 3, aplGain: 0.72, recGain: 0.24 },
-  super:      { name: 'Super-Colônia', nKC: 1000, nMBON: 8, fanIn: 3, aplGain: 0.84, recGain: 0.36 }
-};
-
-function createRng(seed) {
-  let s = seed >>> 0;
-  return {
-    next() {
-      s = (s + 0x6D2B79F5) >>> 0;
-      let t = Math.imul(s ^ (s >>> 15), 1 | s);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    },
-    getState() { return s; },
-    setState(v) { s = v >>> 0; }
-  };
-}
-
-class ArchitecturalFlyBrain {
-  constructor(tierKey = 'drosophila', seed = 42) {
-    this.tierKey = tierKey;
-    this.cfg = TIERS[tierKey];
-    this.rng = createRng(seed);
-
-    this.nSens = 30;
-    this.nKC = this.cfg.nKC;
-    this.nMBON = this.cfg.nMBON;
-    this.nDN = 12;
-    this.nTotal = this.nSens + this.nKC + this.nMBON + this.nDN;
-
-    this.dt = 0.25;
-    this.ev = Math.exp(-this.dt / 20.0);
-    this.ee = Math.exp(-this.dt / 250.0);
-    this.es = Math.exp(-this.dt / 18000.0);
-    this.tick = 0;
-
-    // Sparse expansion Sensory -> KC (5 cue channels: Cyan=0, Amber=1, Red=2, Ball=3, Aerial Sky=4)
-    this.kcPre = [];
-    this.kcCueTag = new Int8Array(this.nKC);
-    for (let k = 0; k < this.nKC; k++) {
-      const group = k % 5;
-      this.kcCueTag[k] = group;
-      const base = group * 6;
-      const inputs = [];
-      for (let f = 0; f < this.cfg.fanIn; f++) {
-        const src = (f === 0 || this.rng.next() < 0.85)
-          ? base + Math.floor(this.rng.next() * 6)
-          : Math.floor(this.rng.next() * 30);
-        inputs.push(src);
-      }
-      this.kcPre.push(inputs);
-    }
-
-    this.nPlastic = this.nKC * 2;
-    this.shortW = new Float64Array(this.nPlastic);
-    this.longW = new Float64Array(this.nPlastic);
-    this.elig = new Float64Array(this.nPlastic);
-    this.kcV = new Float64Array(this.nKC);
-    this.mbonRate = new Float64Array(5); // Cyan, Amber, Red, Ball, Sky
-    this.workingMem = new Float64Array(5); // Recurrent MBON->KC persistence
-    this.lastActiveKC = 0;
-  }
-
-  getFactor(idx) {
-    return Math.min(3.0, Math.max(0.1, 1.0 + this.shortW[idx] + this.longW[idx]));
-  }
-
-  stepWindow(cueInputs, modulation, consolidate, learn, durationMs = 15.0) {
-    const steps = Math.round(durationMs / this.dt);
-    let activeKCSum = 0;
-    const mbonApproach = [0, 0, 0, 0, 0];
-    const mbonAvoid = [0, 0, 0, 0, 0];
-    let dnSpikes = 0;
-
-    const cArr = [cueInputs.cyan, cueInputs.amber, cueInputs.red, cueInputs.ball, cueInputs.sky];
-    const sensProb = new Float64Array(this.nSens);
-    for (let g = 0; g < 5; g++) {
-      // Recurrent working memory keeps recent context slightly active in higher tiers
-      this.workingMem[g] = this.workingMem[g] * 0.92 + cArr[g] * 0.08;
-      const effCue = Math.min(1.0, cArr[g] + this.cfg.recGain * this.workingMem[g]);
-      const p = effCue * 0.14;
-      for (let i = 0; i < 6; i++) sensProb[g * 6 + i] = p;
-    }
-
-    const consFrac = consolidate > 0 ? -Math.expm1(-consolidate * this.dt / 550.0) : 0;
-    const lr = 0.42;
-
-    for (let s = 0; s < steps; s++) {
-      const sensSpk = new Uint8Array(this.nSens);
-      for (let i = 0; i < this.nSens; i++) {
-        if (this.rng.next() < sensProb[i]) sensSpk[i] = 1;
-      }
-
-      let kcSumV = 0;
-      for (let k = 0; k < this.nKC; k++) {
-        let inp = 0;
-        const pres = this.kcPre[k];
-        for (let f = 0; f < pres.length; f++) inp += sensSpk[pres[f]] * 3.8;
-        this.kcV[k] = this.ev * this.kcV[k] + inp + (this.rng.next() - 0.5) * 0.22;
-        kcSumV += Math.max(0, this.kcV[k]);
-      }
-
-      const aplInh = this.cfg.aplGain * (kcSumV / this.nKC);
-      let firedCount = 0;
-
-      for (let k = 0; k < this.nKC; k++) {
-        const netV = this.kcV[k] - aplInh;
-        const cue = this.kcCueTag[k];
-        const eApp = k * 2;
-        const eAvd = k * 2 + 1;
-
-        this.elig[eApp] *= this.ee;
-        this.elig[eAvd] *= this.ee;
-
-        if (netV > 2.55) {
-          this.kcV[k] = 0;
-          firedCount++;
-          const fApp = this.getFactor(eApp);
-          const fAvd = this.getFactor(eAvd);
-          mbonApproach[cue] += fApp;
-          mbonAvoid[cue] += fAvd;
-          this.elig[eApp] = Math.min(1.0, this.elig[eApp] + 0.65);
-          this.elig[eAvd] = Math.min(1.0, this.elig[eAvd] + 0.65);
-        }
-
-        this.shortW[eApp] *= this.es;
-        this.shortW[eAvd] *= this.es;
-
-        if (learn && modulation !== 0) {
-          const delta = lr * modulation * this.elig[eApp] * (this.dt / 250.0);
-          this.shortW[eApp] = Math.min(2.0 - this.longW[eApp], Math.max(-0.9 - this.longW[eApp], this.shortW[eApp] + delta));
-          this.shortW[eAvd] = Math.min(2.0 - this.longW[eAvd], Math.max(-0.9 - this.longW[eAvd], this.shortW[eAvd] - delta));
-        }
-
-        if (consFrac > 0) {
-          const trA = this.shortW[eApp] * consFrac;
-          this.longW[eApp] += trA;
-          this.shortW[eApp] -= trA;
-          const trB = this.shortW[eAvd] * consFrac;
-          this.longW[eAvd] += trB;
-          this.shortW[eAvd] -= trB;
-        }
-      }
-      activeKCSum += firedCount;
-      this.tick++;
-    }
-
-    const norm = Math.max(1, (this.nKC / 5) * 0.45);
-    for (let g = 0; g < 5; g++) {
-      this.mbonRate[g] = (mbonApproach[g] - mbonAvoid[g]) / norm;
-      dnSpikes += Math.round((mbonApproach[g] + mbonAvoid[g]) * 0.22);
-    }
-
-    this.lastActiveKC = activeKCSum / Math.max(1, steps);
-    return {
-      mbonApproach,
-      mbonAvoid,
-      dnSpikes,
-      sparsityPct: Math.min(100, (1 - this.lastActiveKC / this.nKC) * 100)
-    };
-  }
-
-  telemetry() {
-    let maxElig = 0, sumShort = 0, sumLong = 0;
-    let cApp = 0, cN = 0, aApp = 0, aN = 0, rApp = 0, rAvd = 0, rN = 0, sApp = 0, sN = 0;
-    for (let k = 0; k < this.nKC; k++) {
-      const eApp = k * 2;
-      const eAvd = k * 2 + 1;
-      if (this.elig[eApp] > maxElig) maxElig = this.elig[eApp];
-      sumShort += Math.abs(this.shortW[eApp]) + Math.abs(this.shortW[eAvd]);
-      sumLong += Math.abs(this.longW[eApp]) + Math.abs(this.longW[eAvd]);
-      const tag = this.kcCueTag[k];
-      if (tag === 0) { cApp += this.getFactor(eApp); cN++; }
-      else if (tag === 1) { aApp += this.getFactor(eApp); aN++; }
-      else if (tag === 2) { rApp += this.getFactor(eApp); rAvd += this.getFactor(eAvd); rN++; }
-      else if (tag === 4) { sApp += this.getFactor(eApp); sN++; }
-    }
-    return {
-      maxElig,
-      meanShort: sumShort / Math.max(1, this.nPlastic),
-      meanLong: sumLong / Math.max(1, this.nPlastic),
-      prefCyan: cApp / Math.max(1, cN),
-      prefAmber: aApp / Math.max(1, aN),
-      prefRed: rApp / Math.max(1, rN),
-      avoidRed: rAvd / Math.max(1, rN),
-      prefSky: sApp / Math.max(1, sN)
-    };
-  }
-}
-
 // ============================================================================
 // 4. Upgraded Three.js 3D Botanical Terrarium & Detailed Drosophila
 // ============================================================================
@@ -1025,57 +794,15 @@ const dustPoints = new THREE.Points(
 );
 scene.add(dustPoints);
 
-// 4 Training Zones (3 Floor + 1 Elevated Aerial Violet Ring)
+// Habitat sensory adapter: physical food patches and the existing high chapel.
+// The neural engine remains unchanged: its five input slots are mapped to world cues.
+// No colored training rings or hidden targets are rendered.
 const ZONES = [
-  { id: 'cyan',  label: 'Anel Ciano',          color: 0x38bdf8, x:  10.8, y: 0.0, z: -5.4, radius: 2.6, aerial: false, cueIdx: 0 },
-  { id: 'amber', label: 'Anel Âmbar',          color: 0xfbbf24, x: -10.8, y: 0.0, z: -5.4, radius: 2.6, aerial: false, cueIdx: 1 },
-  { id: 'red',   label: 'Zona Vermelha',       color: 0xfb7185, x:   0.0, y: 0.0, z:  9.2, radius: 2.6, aerial: false, cueIdx: 2 },
-  { id: 'sky',   label: 'Anel Aéreo (Violeta)', color: 0xc084fc, x:   0.0, y: 4.5, z: -1.2, radius: 2.3, aerial: true,  cueIdx: 4 }
+  {id:'cyan',label:'Carne da entrada',x:-7.2,y:0,z:-4.7,radius:1.55,aerial:false,cueIdx:0},
+  {id:'amber',label:'Carne da ala oeste',x:7.4,y:0,z:-5.8,radius:1.55,aerial:false,cueIdx:1},
+  {id:'red',label:'Carne da ala leste',x:5.6,y:0,z:8.2,radius:1.55,aerial:false,cueIdx:2},
+  {id:'sky',label:'Mausoléu alto',x:-1.8,y:5.2,z:-9.6,radius:1.50,aerial:true,cueIdx:4}
 ];
-
-for (const z of ZONES) {
-  if (!z.aerial) {
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(z.radius - 0.16, z.radius, 56),
-      new THREE.MeshBasicMaterial({ color: z.color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(z.x, 0.04, z.z);
-    scene.add(ring);
-
-    const disc = new THREE.Mesh(
-      new THREE.CircleGeometry(z.radius - 0.16, 56),
-      new THREE.MeshBasicMaterial({ color: z.color, transparent: true, opacity: 0.11 })
-    );
-    disc.rotation.x = -Math.PI / 2;
-    disc.position.set(z.x, 0.02, z.z);
-    scene.add(disc);
-  } else {
-    // Floating 3D Aerial Torus Ring + faint vertical depth beam
-    const torus = new THREE.Mesh(
-      new THREE.TorusGeometry(z.radius * 0.72, 0.10, 14, 48),
-      new THREE.MeshStandardMaterial({ color: z.color, emissive: z.color, emissiveIntensity: 0.55, roughness: 0.25 })
-    );
-    torus.rotation.x = Math.PI / 2;
-    torus.position.set(z.x, z.y, z.z);
-    scene.add(torus);
-
-    const beam = new THREE.Mesh(
-      new THREE.CylinderGeometry(z.radius * 0.72, z.radius * 0.72, z.y, 32, 1, true),
-      new THREE.MeshBasicMaterial({ color: z.color, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false })
-    );
-    beam.position.set(z.x, z.y / 2, z.z);
-    scene.add(beam);
-  }
-
-  const crystal = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.28, 0),
-    new THREE.MeshStandardMaterial({ color: z.color, emissive: z.color, emissiveIntensity: 0.55, roughness: 0.2 })
-  );
-  crystal.position.set(z.x, z.y + 0.55, z.z);
-  scene.add(crystal);
-  z.crystal = crystal;
-}
 
 // Interactive Nectar Drop (Pet Food) & Pushable Play Ball (Harvard 2026 study!)
 const nectarGroup = new THREE.Group();
@@ -1305,6 +1032,11 @@ let sleeping = false;
 let lastMetabolismStamp = performance.now();
 const HUNGER_SECONDS_TO_25_PERCENT = 6 * 60 * 60;
 const AWAKE_ENERGY_LOSS_PER_SECOND = 0.75 / HUNGER_SECONDS_TO_25_PERCENT;
+const SLEEP_MIN_SECONDS = 60 * 60;
+const SLEEP_TARGET_SECONDS = 90 * 60;
+const AWAKE_REST_LOSS_PER_SECOND = 0.72 / (3 * 60 * 60);
+let sleepElapsedSeconds = 0;
+let sleepStartRest = 0.22;
 let pendingMod = 0;
 let flashAlpha = 0;
 let legPhase = 0;
@@ -1317,29 +1049,6 @@ let trailPoints = [];
 let pet = { energy: 0.78, rest: 0.82, curiosity: 0.65, bond: 0.20 };
 let score = 0, streak = 0, missionIdx = 0, missionHits = 0;
 let lastZoneId = null;
-
-const MISSIONS = [
-  {
-    title: 'Desafio 1: Preferência pelo Alvo Ciano',
-    desc: 'Aplique +1 (PAM) no Anel Ciano e -1 (PPL1) na Zona Vermelha. Depois clique em Descansar para consolidar em LTM.',
-    target: 'cyan', avoid: 'red', goal: 5
-  },
-  {
-    title: 'Desafio 2: Voo ao Anel Aéreo (Violeta)',
-    desc: 'Use Decolar (Voo 3D) e aplique +1 (PAM) quando a mosca passar pelo Anel Aéreo flutuante! Ela aprenderá a subir e pairar lá.',
-    target: 'sky', avoid: 'red', goal: 5
-  },
-  {
-    title: 'Desafio 3: Reversão de Regra (Alvo Âmbar)',
-    desc: 'Mude o treino! Recompense (+1) o Anel Âmbar e desencoraje (-1) o Ciano. Teste a separação na camada Super-Colônia.',
-    target: 'amber', avoid: 'cyan', goal: 5
-  },
-  {
-    title: 'Modo Pet Livre: Voo, Poleiros & Brincadeira',
-    desc: 'Desafios completos! Alimente com sangue, jogue a bolinha, deixe-a pousar nas folhas elevadas e molde o pet do seu jeito.',
-    target: 'sky', avoid: 'red', goal: 10
-  }
-];
 
 const statusLine = document.getElementById('status-line');
 
@@ -1361,23 +1070,14 @@ function detectPerch() {
   return null;
 }
 
-function updateMissionUI() {
-  const m = MISSIONS[Math.min(missionIdx, MISSIONS.length - 1)];
-  document.getElementById('mission-title').textContent = m.title;
-  document.getElementById('mission-desc').textContent = m.desc;
-  document.getElementById('v-mission').textContent = `${missionHits} / ${m.goal} acertos`;
-  document.getElementById('b-mission').style.width = `${Math.min(100, (missionHits / m.goal) * 100)}%`;
-  document.getElementById('hud-score').innerHTML = `Pontos: <strong>${score}</strong> · Sequência: <strong>${streak}</strong>`;
-}
-
 function computePersonality(tel) {
   if (sleeping) return 'Dormindo (LTM)';
   if (pet.energy < 0.28) return 'Faminta';
   if (pet.rest < 0.25) return 'Exausta';
   if (tel.prefSky > 1.22) return 'Acrobata Aérea!';
-  if (tel.prefRed > 1.22) return 'Viciada no Vermelho!';
-  if (tel.prefCyan > 1.22 && tel.avoidRed > 1.15) return 'Disciplinada (Ciano)';
-  if (tel.prefAmber > 1.22) return 'Focada no Âmbar';
+  if (tel.prefRed > 1.22) return 'Interessada no alimento';
+  if (tel.prefCyan > 1.22 && tel.avoidRed > 1.15) return 'Exploradora seletiva';
+  if (tel.prefAmber > 1.22) return 'Farejadora';
   if (pet.curiosity > 0.65 && pet.energy > 0.65) return 'Brincalhona';
   return 'Exploradora';
 }
@@ -1393,40 +1093,14 @@ function triggerReinforcement(val) {
   pulseRing.position.set(flyPos.x, flyPos.y + 0.14, flyPos.z);
   pulseRing.scale.set(1, 1, 1);
 
-  let nearest=-1,nearestDistance=2.5;
-  HABITAT_FRUITS.forEach((f,i)=>{const d=Math.hypot(f.x-flyPos.x,f.z-flyPos.z);if(d<nearestDistance){nearest=i;nearestDistance=d;}});
-  if(nearest>=0)neuroEthology.reinforce(nearest,val);
-  if (val > 0) {
-    pet.bond = Math.min(1.0, pet.bond + 0.01);
-    playTone(680, 0.12, 'triangle', 0.09);
-  } else {
-    pet.bond = Math.max(0.0, pet.bond - 0.02);
-    playTone(205, 0.15, 'sawtooth', 0.08);
-  }
-
-  const m = MISSIONS[Math.min(missionIdx, MISSIONS.length - 1)];
-  const current = detectZone();
-  if (current) {
-    if ((val > 0 && current.id === m.target) || (val < 0 && current.id === m.avoid)) {
-      score += 10 + streak * 2;
-      streak++;
-      missionHits++;
-      statusLine.textContent = `Reforço ${val > 0 ? '+1 (PAM)' : '-1 (PPL1)'} aplicado em ${current.label}!`;
-      if (missionHits >= m.goal && missionIdx < MISSIONS.length - 1) {
-        missionIdx++;
-        missionHits = 0;
-        playTone(880, 0.22, 'sine', 0.1);
-        statusLine.textContent = 'Desafio concluído! Nova etapa de adestramento liberada.';
-      }
-    } else {
-      streak = 0;
-      statusLine.textContent = `Reforço ${val > 0 ? '+1' : '-1'} em ${current.label} — ela vai aprender exatamente o que você reforçar!`;
-    }
-  } else {
-    statusLine.textContent = `Clicker ${val > 0 ? '+1 (PAM)' : '-1 (PPL1)'} disparado no centro.`;
-  }
-  updateMissionUI();
+  // PAM/PPL1 modulates only recently active neural traces in brain.stepWindow.
+  // No automatic reinforcement of a specific prop, mission, or trust bonus.
+  playTone(val > 0 ? 680 : 205, 0.13, val > 0 ? 'triangle' : 'sawtooth', 0.08);
+  statusLine.textContent = val > 0
+    ? 'PAM: recompensa enviada às sinapses ativas.'
+    : 'PPL1: sinal aversivo enviado às sinapses ativas.';
 }
+
 
 
   // Naturalistic habitat: fruit patches, odor gradients and learned site values.
@@ -1523,98 +1197,6 @@ function triggerReinforcement(val) {
   }
 
 
-class FlyNeuroEthology {
-  constructor(seed=47) {
-    this.rng=createRng(seed); this.nOdors=4; this.nGlomeruli=8; this.nKCs=96;
-    this.orn=new Float64Array(8);this.pn=new Float64Array(8);
-    this.kc=new Float64Array(96);this.weights=new Float64Array(96*4*2);
-    this.eligibility=new Float64Array(96*4);
-    this.memory=new Float64Array(4);this.spatial=new Float64Array(4);
-    this.visits=new Uint32Array(4);this.heading=0;this.activity='explorar';
-    this.lastChoice=-1;this.rewards=0;this.punishments=0;this.steps=0;
-    this.compartments=['gamma1-PPL1','gamma5-PAM','beta2-PAM','alpha2-PPL1'];
-    this.odorTemplates=[[1,.22,.12,.04,.05,.04,.08,.02],[.10,.90,.25,.06,.04,.08,.03,.05],
-      [.08,.14,.92,.38,.08,.04,.10,.03],[.18,.07,.20,.94,.42,.15,.05,.09]];
-    this.projection=Array.from({length:96},(_,k)=>[k%8,(k*5+3)%8,(k*7+1)%8]);
-  }
-  sense(fruits,pos) {
-    this.orn.fill(0);
-    for(let i=0;i<4;i++){
-      const f=fruits[i],d=Math.hypot(f.x-pos.x,f.z-pos.z);
-      const concentration=f.odor*f.food/(1+0.085*d*d);
-      for(let g=0;g<8;g++)this.orn[g]+=concentration*this.odorTemplates[i][g];
-    }
-    for(let g=0;g<8;g++){
-      const surround=(this.orn[(g+1)%8]+this.orn[(g+7)%8])*0.16;
-      this.pn[g]=Math.max(0,Math.tanh(this.orn[g])-surround);
-    }
-    for(let k=0;k<96;k++){
-      const a=this.projection[k],v=(this.pn[a[0]]+this.pn[a[1]]+this.pn[a[2]])/3;
-      this.kc[k]=v>0.22?Math.min(1,(v-0.22)*2.6):0;
-    }
-  }
-  odorValue(i) {
-    let sum=0,denom=0;
-    const t=this.odorTemplates[i];
-    for(let k=0;k<96;k++){
-      const p=this.projection[k],act=(t[p[0]]+t[p[1]]+t[p[2]])/3;
-      if(act<0.18)continue;
-      const idx=(i*96+k)*2;
-      sum+=act*(this.weights[idx]-this.weights[idx+1]);denom+=act;
-    }
-    return denom?sum/denom:0;
-  }
-  choose(sensory,pet) {
-    this.steps++;
-    const hunger=1-pet.energy,fatigue=1-pet.rest;
-    const actions=[
-      {name:'alimentar',score:0.15+2.5*hunger+Math.max(...sensory.map((v,i)=>this.odorValue(i)))*0.45},
-      {name:'repousar',score:0.1+2.1*fatigue},
-      {name:'explorar',score:0.4+pet.curiosity*0.8},
-      {name:'brincar',score:0.10+pet.curiosity*0.9}
-    ];
-    if(this.steps===1||this.steps%90===0){
-      const exps=actions.map(a=>Math.exp(a.score*1.6)),total=exps.reduce((a,b)=>a+b,0);
-      let r=this.rng.next()*total;
-      for(let i=0;i<actions.length;i++){r-=exps[i];if(r<=0){this.activity=actions[i].name;break;}}
-    }
-    const scores=sensory.map((v,i)=>{
-      if(v.food<=0.0005)return -Infinity;
-      return v.food*(0.35+2*hunger)+this.odorValue(i)*1.5+
-        this.spatial[i]*0.08;
-    });
-    let best=-1,bestScore=-Infinity;
-    for(let i=0;i<scores.length;i++){
-      if(scores[i]>bestScore+1e-9){best=i;bestScore=scores[i];}
-      else if(Number.isFinite(scores[i])&&Math.abs(scores[i]-bestScore)<=1e-9&&this.rng.next()<0.5)best=i;
-    }
-    const previous=this.lastChoice;
-    if(previous>=0&&Number.isFinite(scores[previous])&&scores[previous]>=bestScore-0.12&&this.steps%120!==0)best=previous;
-    this.lastChoice=best;
-    return {activity:this.activity,target:best,odorValue:best<0?0:this.odorValue(best)};
-  }
-  reinforce(i,reward) {
-    if(i<0||i>=4||!Number.isFinite(reward))return;
-    const t=this.odorTemplates[i];
-    for(let k=0;k<96;k++){
-      const p=this.projection[k],act=(t[p[0]]+t[p[1]]+t[p[2]])/3;
-      if(act<0.18)continue;
-      const idx=(i*96+k)*2;
-      // Simplified compartment-specific DAN plasticity (not connectome exact).
-      const delta=Math.min(0.02,act*0.016)*Math.sign(reward);
-      this.weights[idx]=Math.max(-1,Math.min(1,this.weights[idx]+delta));
-      this.weights[idx+1]=Math.max(-1,Math.min(1,this.weights[idx+1]-delta));
-    }
-    this.spatial[i]=Math.max(-1,Math.min(1,this.spatial[i]+0.09*Math.sign(reward)));
-    if(reward>0)this.rewards++;else this.punishments++;
-  }
-  rest() {
-    for(let i=0;i<this.weights.length;i++)this.weights[i]*=0.999995;
-    for(let i=0;i<4;i++)this.spatial[i]*=0.99999;
-  }
-  snapshot(){return {weights:Array.from(this.weights),spatial:Array.from(this.spatial),visits:Array.from(this.visits),rewards:this.rewards,punishments:this.punishments,steps:this.steps,rng:this.rng.getState()};}
-  restore(d){if(!d)return;if(d.weights?.length===this.weights.length)this.weights.set(d.weights);if(d.spatial?.length===4)this.spatial.set(d.spatial);if(d.visits?.length===4)this.visits.set(d.visits);this.rewards=d.rewards||0;this.punishments=d.punishments||0;this.steps=d.steps||0;if(Number.isInteger(d.rng))this.rng.setState(d.rng);}
-}
 let neuroEthology=new FlyNeuroEthology();
 function runNeuroExperiments() {
   // Paired training, extinction, reversal and retention; deterministic simulated tests.
@@ -1668,11 +1250,7 @@ function runNeuroExperiments() {
 function stepSimulation() {
   clockSec += 0.016;
 
-  // Animate crystals & ambient lighting for Day/Night
-  for (let i = 0; i < ZONES.length; i++) {
-    ZONES[i].crystal.rotation.y += 0.025;
-    ZONES[i].crystal.position.y = ZONES[i].y + 0.55 + Math.sin(clockSec * 2.5 + i) * 0.08;
-  }
+  // Ambient lighting. The removed training rings have no visual objects.
   const targetKeyInt = sleeping ? 0.35 : 1.65;
   keyLight.intensity += (targetKeyInt - keyLight.intensity) * 0.06;
   hemiLight.intensity += ((sleeping ? 0.4 : 1.15) - hemiLight.intensity) * 0.06;
@@ -1682,13 +1260,15 @@ function stepSimulation() {
   const metabolismDt = Math.min(0.10, Math.max(0, (metabolismNow - lastMetabolismStamp) / 1000));
   lastMetabolismStamp = metabolismNow;
   if (!sleeping && pet.rest <= 0.22) setPetSleep(true, true);
-  else if (sleeping && pet.rest >= 0.94) setPetSleep(false, true);
   if (sleeping) {
+    sleepElapsedSeconds += metabolismDt;
     neuroEthology.rest();
-    pet.rest = Math.min(1.0, pet.rest + 0.00025);
+    const restRate = Math.max(0, 0.94 - sleepStartRest) / SLEEP_TARGET_SECONDS;
+    pet.rest = Math.min(0.94, pet.rest + restRate * metabolismDt);
     pet.energy = Math.max(0.05, pet.energy - AWAKE_ENERGY_LOSS_PER_SECOND * metabolismDt * 0.25);
+    if (sleepElapsedSeconds >= SLEEP_MIN_SECONDS && pet.rest >= 0.94 - 1e-7) setPetSleep(false, true);
   } else {
-    pet.rest = Math.max(0.05, pet.rest - 0.000012);
+    pet.rest = Math.max(0.05, pet.rest - AWAKE_REST_LOSS_PER_SECOND * metabolismDt * (flyPos.y > 0.28 ? 1.4 : 1));
     pet.energy = Math.max(0.05, pet.energy - AWAKE_ENERGY_LOSS_PER_SECOND * metabolismDt * (flyPos.y > 0.28 ? 2.2 : 1.0));
   }
   pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.55 + 0.45 * pet.bond)));
@@ -1999,15 +1579,11 @@ function stepSimulation() {
 
   // HUD & Telemetry
   const zNow = detectZone();
-  const zName = sleeping ? 'Repouso Noturno (dFB ON)' : (zNow ? zNow.label : 'Cemitério Aberto');
+  const zName = sleeping ? 'Descansando' : (zNow ? zNow.label : 'Cemitério Aberto');
   document.getElementById('hud-zone').innerHTML = `Zona atual: <strong>${zName}</strong>`;
   document.getElementById('hud-action').innerHTML = `Ação: <strong>${actionLabel}</strong> · Altitude: <strong>${(flyPos.y * 2.0).toFixed(1)} cm</strong>`;
 
   const tel = brain.telemetry();
-  if (zNow && zNow.id !== lastZoneId) {
-    const m = MISSIONS[Math.min(missionIdx, MISSIONS.length - 1)];
-    if (zNow.id === m.target && tel.prefCyan > 1.15) { score += 5; updateMissionUI(); }
-  }
   lastZoneId = zNow ? zNow.id : null;
 
   document.getElementById('pet-personality').textContent = computePersonality(tel);
@@ -2022,8 +1598,6 @@ function stepSimulation() {
 
   document.getElementById('m-time').textContent = `${(brain.tick * brain.dt).toFixed(0)} ms`;
   document.getElementById('m-sparse').textContent = `${out.sparsityPct.toFixed(0)}%`;
-  document.getElementById('m-pref-cyan').textContent = `${tel.prefCyan.toFixed(3)}x`;
-  document.getElementById('m-pref-red').textContent = `${tel.prefRed.toFixed(3)}x`;
   document.getElementById('m-short').textContent = tel.meanShort.toFixed(3);
   document.getElementById('m-long').textContent = tel.meanLong.toFixed(3);
 
@@ -2031,17 +1605,7 @@ function stepSimulation() {
   document.getElementById('v-elig').textContent = `${eligPct}%`;
   document.getElementById('b-elig').style.width = `${eligPct}%`;
 
-  const cap = Math.max(10, brain.nKC * 0.22);
-  document.getElementById('v-mbon-c').textContent = out.mbonApproach[0].toFixed(1);
-  document.getElementById('b-mbon-c').style.width = `${Math.min(100, (out.mbonApproach[0] / cap) * 100)}%`;
-  document.getElementById('v-mbon-a').textContent = out.mbonApproach[1].toFixed(1);
-  document.getElementById('b-mbon-a').style.width = `${Math.min(100, (out.mbonApproach[1] / cap) * 100)}%`;
-  document.getElementById('v-mbon-r').textContent = out.mbonAvoid[2].toFixed(1);
-  document.getElementById('b-mbon-r').style.width = `${Math.min(100, (out.mbonAvoid[2] / cap) * 100)}%`;
-  document.getElementById('v-mbon-s').textContent = out.mbonApproach[4].toFixed(1);
-  document.getElementById('b-mbon-s').style.width = `${Math.min(100, (out.mbonApproach[4] / cap) * 100)}%`;
-  document.getElementById('v-dn').textContent = String(out.dnSpikes);
-  document.getElementById('b-dn').style.width = `${Math.min(100, (out.dnSpikes / 45) * 100)}%`;
+
 }
 
 function updateCamera() {
@@ -2191,7 +1755,7 @@ document.getElementById('btn-takeoff').addEventListener('click', () => {
   flightBoostTimer = 95;
   flyPos.y = Math.max(flyPos.y, 0.65);
   playTone(590, 0.15, 'sine', 0.07);
-  statusLine.textContent = 'Voo 3D ativado! A mosca subiu em direção ao Anel Aéreo e às folhas elevadas.';
+  statusLine.textContent = 'Voo 3D ativado! A mosca pode procurar os mausoléus elevados.';
 });
 
 const btnMaze = document.getElementById('btn-maze');
@@ -2232,9 +1796,14 @@ document.getElementById('btn-clear-custom').addEventListener('click', () => {
 
 function setPetSleep(asleep, automatic = false) {
   if (sleeping === asleep) return;
+  if (!asleep && !automatic && sleepElapsedSeconds < SLEEP_MIN_SECONDS) {
+    statusLine.textContent = 'A diabinha precisa dormir pelo menos 60 minutos de atividade antes de acordar.';
+    return;
+  }
+  if (asleep) { sleepElapsedSeconds = 0; sleepStartRest = pet.rest; }
   sleeping = asleep;
   btnSleep.classList.toggle('active', sleeping);
-  btnSleep.textContent = sleeping ? 'Acordar Pet' : 'Descansar (LTM)';
+  btnSleep.textContent = sleeping ? 'Dormindo (mínimo 60 min)' : 'Descansar (LTM)';
   if (!automatic) playTone(sleeping ? 310 : 520, 0.18, 'sine', 0.07);
   statusLine.textContent = sleeping
     ? (automatic ? 'A diabinha ficou cansada e adormeceu sozinha.' : 'Seu pet está descansando e consolidando memórias.')
@@ -2305,6 +1874,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       shortW: Array.from(brain.shortW),
       longW: Array.from(brain.longW),
       pet, score, streak, missionIdx, missionHits, flyPos,
+      sleeping, sleepElapsedSeconds, sleepStartRest,
       neuroEthology:neuroEthology.snapshot()
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
@@ -2326,12 +1896,16 @@ document.getElementById('btn-load').addEventListener('click', () => {
     if (d.shortW && d.shortW.length === brain.shortW.length) brain.shortW.set(d.shortW);
     if (d.longW && d.longW.length === brain.longW.length) brain.longW.set(d.longW);
     if (d.pet) pet = d.pet;
+    sleeping = !!d.sleeping;
+    sleepElapsedSeconds = Number.isFinite(d.sleepElapsedSeconds) ? Math.max(0,d.sleepElapsedSeconds) : 0;
+    sleepStartRest = Number.isFinite(d.sleepStartRest) ? d.sleepStartRest : pet.rest;
+    btnSleep.classList.toggle('active', sleeping);
+    btnSleep.textContent = sleeping ? 'Dormindo (mínimo 60 min)' : 'Descansar (LTM)';
     neuroEthology=new FlyNeuroEthology();neuroEthology.restore(d.neuroEthology);
     score = d.score || 0; streak = d.streak || 0;
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;
     document.querySelectorAll('.tier-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === brain.tierKey));
-    updateMissionUI();
     statusLine.textContent = `Pet "${document.getElementById('pet-name').value}" restaurado (${brain.cfg.name}).`;
   } catch (e) {
     statusLine.textContent = 'Erro ao restaurar checkpoint.';
@@ -2406,7 +1980,6 @@ window.addEventListener('load', () => {
   if (localStorage.getItem('drosophila_3d_trainer_v1')) {
     document.getElementById('btn-load').click();
   } else {
-    updateMissionUI();
   }
   lastMetabolismStamp = performance.now();
   if (rafId) cancelAnimationFrame(rafId);
