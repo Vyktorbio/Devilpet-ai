@@ -25,6 +25,12 @@ try {
   // Loading must never wait for Rust.
   const ready=await page.evaluate(()=>window.DevilPetRustBoot);
   assert.equal(ready,true,'WASM and engine self-test must initialize');
+  await page.waitForFunction(()=>document.getElementById('fly-sensors-values')?.textContent.includes('Antenas:'),
+    {timeout:16000});
+  assert.equal(await page.evaluate(()=>typeof window.DevilPetSensors?.sample),'function');
+  assert.equal(await page.evaluate(()=>window.DevilPetFly!==undefined),true);
+  assert.equal(await page.evaluate(()=>window.DevilPetWorld3D!==undefined),true);
+  assert.equal(await page.evaluate(()=>window.DevilPetConnectomeBridge!==undefined),true);
   await page.waitForFunction(()=>window.DevilPetRuntime.getBrain().tick>60,
     {timeout:20000});
   assert.equal(await page.evaluate(()=>window.DevilPetRustStatus().mode),'javascript');
