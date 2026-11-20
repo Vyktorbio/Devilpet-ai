@@ -24,7 +24,7 @@
     '<ul id="eth-markov-list" style="font-size:12px;line-height:1.7;padding-left:20px"></ul>'+
     '<h3 style="font-size:13px">MSD: deslocamento quadrático médio</h3>'+
     '<p style="font-size:11px;color:var(--muted)">MSD(τ) = média de ||r(t+τ) − r(t)||², nas três dimensões. Resultados em unidades virtuais². Sem interpolar pausas ou períodos com o jogo fechado.</p>'+
-    '<canvas id="eth-msd-plot" width="420" height="184" role="img" aria-label="Deslocamento quadrático médio em função do intervalo temporal" style="width:100%;max-width:420px;height:auto;border:1px solid var(--border);border-radius:8px"></canvas>'+
+    '<p style="font-size:11px;color:var(--muted)">Valores de MSD apresentados abaixo, sem um segundo gráfico.</p>'+
     '<ul id="eth-msd-list" style="font-size:12px;line-height:1.7;padding-left:20px"></ul>'+
     '<h3 style="font-size:13px">Comparação dos últimos sete dias</h3>'+
     '<ul id="eth-trend-list" style="font-size:12px;line-height:1.7;padding-left:20px"></ul>'+
@@ -51,34 +51,6 @@
       counts[key]=(counts[key]||0)+1;
     }
     return stats.transitions(counts);
-  }
-  function plotMsd(points){
-    const canvas=document.getElementById('eth-msd-plot');if(!canvas)return;
-    const ctx=canvas.getContext('2d');if(!ctx)return;
-    const W=canvas.width,H=canvas.height,left=48,right=W-20,top=22,bottom=H-33;
-    ctx.clearRect(0,0,W,H);
-    ctx.lineWidth=1;ctx.strokeStyle='#8790a3';
-    ctx.beginPath();ctx.moveTo(left,top);ctx.lineTo(left,bottom);
-    ctx.lineTo(right,bottom);ctx.stroke();
-    ctx.font='11px sans-serif';ctx.fillStyle='#c2cad7';
-    ctx.fillText('MSD',8,13);ctx.fillText('τ (s)',right-33,H-10);
-    if(points.length<2){
-      ctx.fillText('Aguardando trajetórias contínuas',left+9,Math.round(H/2));
-      return;
-    }
-    const xmax=Math.max(1,...points.map(v=>v.lagSeconds));
-    const ymax=Math.max(1e-6,...points.map(v=>v.mean));
-    ctx.strokeStyle='#aa96ec';ctx.fillStyle='#aa96ec';ctx.lineWidth=2;
-    ctx.beginPath();
-    const xy=points.map(p=>({x:left+(p.lagSeconds/xmax)*(right-left),
-      y:bottom-(p.mean/ymax)*(bottom-top)}));
-    xy.forEach((p,i)=>{if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);});
-    ctx.stroke();
-    xy.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fill();});
-    ctx.fillStyle='#c2cad7';
-    ctx.fillText(xmax.toFixed(0),right-10,bottom+15);
-    ctx.fillText(ymax.toFixed(1),6,top+5);
-    ctx.fillText('0',left-12,bottom+15);
   }
   function render(){
     let diary;
@@ -109,7 +81,6 @@
     putList('eth-msd-list',points.map(v=>'τ = '+v.lagSeconds.toFixed(1)+' s: MSD = '+
       v.mean.toFixed(2)+' unidades² (n = '+v.pairs+' pares)'),
       'São necessários pelo menos três pares contínuos de posições para cada intervalo.');
-    plotMsd(points);
     const trend=stats.dailyTrend(diary.days||{},7).filter(v=>v.seconds>=30);
     putList('eth-trend-list',trend.map(v=>v.date+': '+(100*v.flyFraction).toFixed(1)+
       '% do tempo voando; '+v.distance.toFixed(1)+' unidades percorridas'),
