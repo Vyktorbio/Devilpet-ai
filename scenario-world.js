@@ -100,7 +100,7 @@
 
     // Solid footings: the rolling ball cannot clip through an arch's uprights.
     collideBall(ball, radius) {
-      if (this.mode !== 'ground') return false;
+      if (!this.groundGroup.visible) return false;
       let hit = false;
       for (const arch of this.groundArches) {
         for (const side of [-1, 1]) {
@@ -126,7 +126,7 @@
 
     // Geometry checks only: no automatic neural reinforcement or waypoint seeking.
     observeBall(previous, current, onPass) {
-      if (this.mode !== 'ground') return;
+      if (!this.groundGroup.visible) return;
       for (const arch of this.groundArches) {
         const i = arch.index;
         const d0 = previous.z - arch.z, d1 = current.z - arch.z;
@@ -143,7 +143,7 @@
     }
 
     observeFlight(previous, current, onPass) {
-      if (this.mode !== 'air') return;
+      if (!this.airGroup.visible) return;
       for (const hoop of this.airHoops) {
         const i = hoop.index;
         const axis = hoop.horizontal ? 'y' : 'z';
