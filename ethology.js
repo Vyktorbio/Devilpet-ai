@@ -21,9 +21,77 @@
     const key = dayKey(new Date());
     if (!data.days[key]) data.days[key] = {
       seconds:0, distance:0, times:{sleep:0,feed:0,play:0,perch:0,fly:0,ground:0},
-      perches:{}, cells:Array(GRID*GRID).fill(0), assistedSeconds:0, foodVisits:0
+      perches:{}, cells:Array(GRID*GRID).fill(0), assistedSeconds:0, foodVisits:0,
+      areas:{}, freeAreas:{}, sleepAreas:{}, visits:{}, notices:{}
     };
-    return data.days[key];
+    const d = data.days[key];
+    // Upgrade historic v1 days in place; never discard saved observations.
+    for (const field of ['areas','freeAreas','sleepAreas','visits','notices']) {
+      if(!d[field] || typeof d[field] !== 'object') d[field] = {};
+    }
+    if(!data.milestones || typeof data.milestones !== 'object') data.milestones = {};
+    return d;
+  }
+  function areaAt(pos) {
+    // The location label is observational: it does not affect locomotion or input cues.
+    for (const perch of PERCHES) {
+      if (Math.hypot(pos.x-perch.x,pos.z-perch.z) <= perch.radius+0.65 &&
+          Math.abs(pos.y-perch.y)<=1.3) return 'Pináculo: '+perch.label;
+    }
+    for(let i=0;i<HABITAT_FRUITS.length;i++){
+      const f=HABITAT_FRUITS[i];
+      if(Math.hypot(pos.x-f.x,pos.z-f.z)<2.8 && pos.y<2.1) return 'Ponto de alimento '+(i+1);
+    }
+    if(Math.abs(pos.x)<6 && Math.abs(pos.z)<6) return 'Centro do cemitério';
+    if(pos.z < -6) return pos.x<0?'Ala norte-oeste':'Ala norte-leste';
+    if(pos.z > 6) return pos.x<0?'Ala sul-oeste':'Ala sul-leste';
+    return pos.x < 0 ? 'Ala oeste' : 'Ala leste';
+  }
+  const showTime = t => t>=3600?(t/3600).toFixed(1)+' h':t>=60?Math.round(t/60)+' min':Math.round(t)+' s';
+  function rankings(obj) { return Object.entries(obj||{}).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]); }
+  function topPlace(d,property='freeAreas') {
+    const ranks=rankings(d?.[property]);
+    return ranks.length?ranks[0]:null;
+  }
+  function summaryFor(d) {
+    if(!d || !d.seconds) return 'Ainda não há tempo observado suficiente.';
+    const focus = topPlace(d);
+    const location = focus ? focus[0]+' ('+Math.round(100*focus[1]/Math.max(0.01,Object.values(d.freeAreas).reduce((a,b)=>a+b,0)))+'% do tempo livre)' : 'ainda sem tempo livre suficiente';
+    return 'Observação de '+showTime(d.seconds)+'. Local mais frequentado sem comando: '+location+
+      '. Voo: '+showTime(d.times?.fly||0)+', descanso: '+showTime(d.times?.sleep||0)+
+      ', interação com a bolinha: '+showTime(d.times?.play||0)+'.';
+  }
+  function milestone(id,title,description) {
+    if(!data.milestones) data.milestones={};
+    if(data.milestones[id]) return;
+    data.milestones[id]={time:new Date().toISOString(),title,description};
+    log('Marco da diabinha',title);
+  }
+  function observations(d,state) {
+    if (state.name==='sleep') milestone('firstSleep','Primeiro sono observado','Repouso registrado pelo diário');
+    if (state.name==='feed') milestone('firstFeed','Primeira alimentação observada','Aproximação da gota de sangue');
+    if (state.name==='play') milestone('firstPlay','Primeira interação com a bolinha','Proximidade da bolinha com curiosidade elevada');
+    if (state.name==='perch') milestone('firstPerch','Primeiro pouso registrado','Uso de poleiro do cemitério');
+    if (d.seconds>=3600) milestone('hourObserved','Uma hora de vida observada','Soma de tempo simulado com a página ativa');
+    // Descriptive thresholds only, requiring observation time and no claim of neural learning.
+    if(d.seconds>=1200 && !d.notices['areaLead']) {
+      const top=topPlace(d);
+      const free=Object.values(d.freeAreas).reduce((a,b)=>a+b,0);
+      if(top && free>=900 && top[1]/free>=0.45) {
+        d.notices['areaLead']=true;
+        log('Concentração espacial observada',top[0]+': '+Math.round(100*top[1]/free)+'% do tempo livre registrado hoje');
+      }
+    }
+    const dates=Object.keys(data.days).sort();
+    const ix=dates.indexOf(dayKey(new Date()));
+    const prior=ix>0?data.days[dates[ix-1]]:null;
+    if(prior && prior.seconds>=1200 && d.seconds>=1200 && !d.notices['areaShift']){
+      const a=topPlace(prior),b=topPlace(d);
+      if(a && b && a[0]!==b[0]){
+        d.notices['areaShift']=true;
+        log('Mudança de local predominante',a[0]+' → '+b[0]+'; comparação descritiva entre dias');
+      }
+    }
   }
   function limit() {
     if(data.samples.length > MAX_SAMPLES) data.samples.splice(0, data.samples.length-MAX_SAMPLES);
@@ -80,43 +148,48 @@
       'application/json;charset=utf-8');
   }
   function csv() {
-    const header=['data_iso','x','y','z','estado','guiado','energia','descanso','vinculo','arquitetura'];
-    const rows=data.samples.map(s=>s.map(v=>String(v).replace(/"/g,'""')).map(v=>'"'+v+'"').join(';'));
+    const header=['data_iso','x','y','z','estado','guiado','energia','descanso','vinculo','arquitetura','local','poleiro'];
+    const rows=data.samples.map(s=>header.map((_,i)=>String(s[i]??'').replace(/"/g,'""')).map(v=>'"'+v+'"').join(';'));
     download('devilpet-etologia-'+dayKey(new Date())+'.csv','\uFEFF'+[header.join(';'),...rows].join('\r\n'),'text/csv;charset=utf-8');
   }
   function render() {
-    const d = today(), seconds=d.seconds;
-    const labelTime=t=> t>=3600?(t/3600).toFixed(1)+' h':t>=60?Math.round(t/60)+' min':Math.round(t)+' s';
-    const activeCells=d.cells.filter(x=>x>0).length;
-    const ordered=Object.entries(d.perches).sort((a,b)=>b[1]-a[1]);
-    const top=ordered.length?ordered[0][0]+' ('+Math.round(100*ordered[0][1]/Math.max(0.01,d.times.perch))+'% do tempo pousada)':'Ainda sem pousos registrados';
+    const d=today(), seconds=d.seconds;
+    const focus=topPlace(d), totFree=Object.values(d.freeAreas).reduce((a,b)=>a+b,0);
+    const ordered=rankings(d.perches);
+    const place=ordered.length ? ordered[0][0]+' ('+
+      Math.round(100*ordered[0][1]/Math.max(0.01,d.times.perch))+'% do tempo pousada)' :
+      'Ainda sem pousos registrados';
     const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-    set('eth-total',labelTime(seconds));
+    set('eth-total',showTime(seconds));
     set('eth-distance',d.distance.toFixed(1)+' unidades');
-    set('eth-cells',activeCells+'/'+(GRID*GRID)+' áreas');
+    set('eth-cells',d.cells.filter(x=>x>0).length+'/'+(GRID*GRID)+' áreas');
     set('eth-entropy',entropy(d.cells).toFixed(2)+' nats');
-    set('eth-perch',top);
-    set('eth-assisted',labelTime(d.assistedSeconds));
-    const pieces=Object.entries(labels).map(([k,v])=>v+': '+labelTime(d.times[k]||0));
-    set('eth-actions',pieces.join(' · '));
-    const logEl=document.getElementById('eth-events');
-    if(logEl) {
-      logEl.replaceChildren();
-      const recent=data.events.slice(-12).reverse();
-      if(!recent.length){const li=document.createElement('li');li.textContent='Sem eventos registrados ainda.';logEl.appendChild(li);}
-      recent.forEach(x=>{const li=document.createElement('li');li.textContent=new Date(x.time).toLocaleString('pt-BR')+' — '+x.type+(x.detail?' · '+x.detail:'');logEl.appendChild(li);});
-    }
-    const canvas=document.getElementById('eth-heat');
-    if(canvas){
-      const ctx=canvas.getContext('2d'), cell=canvas.width/GRID;
-      const max=Math.max(0.01,...d.cells);
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      d.cells.forEach((s,i)=>{
-        const intensity=s?0.16+0.84*Math.sqrt(s/max):0.025;
-        ctx.fillStyle='rgba(124,93,220,'+intensity.toFixed(3)+')';
-        ctx.fillRect((i%GRID)*cell+1,Math.floor(i/GRID)*cell+1,cell-2,cell-2);
-      });
-    }
+    set('eth-perch',place);
+    set('eth-assisted',showTime(d.assistedSeconds));
+    set('eth-actions',Object.entries(labels).map(([k,v])=>v+': '+showTime(d.times[k]||0)).join(' · '));
+    set('eth-summary',summaryFor(d));
+    set('eth-days',Object.keys(data.days).filter(k=>data.days[k].seconds>=30).length+' dias observados');
+    const fill=(id,rows,emptyText)=>{
+      const root=document.getElementById(id);if(!root)return;
+      root.replaceChildren();
+      if(!rows.length){const li=document.createElement('li');li.textContent=emptyText;root.appendChild(li);return;}
+      rows.forEach(item=>{const li=document.createElement('li');li.textContent=item;root.appendChild(li);});
+    };
+    const places=rankings(d.freeAreas).slice(0,7).map(([name,secs])=>
+      name+': '+showTime(secs)+' ('+Math.round(100*secs/Math.max(0.01,totFree))+'% do tempo livre)');
+    fill('eth-places',places,'Aguardando observações sem comandos.');
+    fill('eth-sleep-places',rankings(d.sleepAreas).slice(0,5).map(([name,secs])=>name+': '+showTime(secs)),
+      'Ainda não há locais de sono registrados.');
+    const latest=Object.keys(data.days).sort().reverse().slice(0,7);
+    fill('eth-history',latest.map(date=>date+': '+summaryFor(data.days[date])),
+      'O histórico começará quando a mosca se movimentar.');
+    const markers=Object.values(data.milestones||{}).reverse().slice(0,8);
+    fill('eth-milestones',markers.map(m=>new Date(m.time).toLocaleDateString('pt-BR')+' — '+m.title),
+      'Os marcos aparecerão conforme acontecimentos forem observados.');
+    fill('eth-events',data.events.slice(-12).reverse().map(x=>
+      new Date(x.time).toLocaleString('pt-BR')+' — '+x.type+(x.detail?' · '+x.detail:'')),
+      'Sem eventos registrados ainda.');
+    // Heat map data is retained for future scientific plots, but the grid is hidden by user choice.
   }
   // Visual panel. The existing 3D canvas and all neural code stay unchanged.
   const panel=document.createElement('section');
@@ -134,7 +207,13 @@
     '<p style="font-size:12px"><strong>Poleiro preferido:</strong> <span id="eth-perch">Aguardando</span></p>'+
     '<p style="font-size:12px"><strong>Tempo com comando ativo:</strong> <span id="eth-assisted">0 s</span></p>'+
     '<p id="eth-actions" style="font-size:12px;color:var(--muted)"></p>'+
-    '<canvas id="eth-heat" width="240" height="240" role="img" aria-label="Mapa de calor das 144 áreas do cemitério" style="width:100%;max-width:240px;height:auto;border:1px solid var(--border);border-radius:10px;background:#0b1020"></canvas>'+
+    '<div class="divider"></div>'+
+    '<h3 style="font-size:14px">Diário de hoje</h3><p id="eth-summary" style="font-size:12px;line-height:1.7"></p>'+
+    '<p id="eth-days" style="color:var(--muted);font-size:12px"></p>'+
+    '<details open><summary>Locais preferidos sem comandos</summary><ol id="eth-places" style="font-size:12px;line-height:1.7;padding-left:20px"></ol></details>'+
+    '<details><summary>Onde ela dorme</summary><ol id="eth-sleep-places" style="font-size:12px;line-height:1.7;padding-left:20px"></ol></details>'+
+    '<details><summary>Últimos sete dias</summary><ul id="eth-history" style="font-size:12px;line-height:1.7;padding-left:20px"></ul></details>'+
+    '<details><summary>Marcos da vida da diabinha</summary><ul id="eth-milestones" style="font-size:12px;line-height:1.7;padding-left:20px"></ul></details>'+
     '<div class="divider"></div>'+
     '<strong>Últimos acontecimentos</strong><ul id="eth-events" style="font-size:12px;line-height:1.7;max-height:220px;overflow:auto;padding-left:20px"></ul>'+
     '<div class="btn-group"><button type="button" id="eth-export-json">Exportar backup JSON</button>'+
@@ -191,7 +270,7 @@
   if(viewport)viewport.addEventListener('pointerup',()=>{if(placeMode==='call')log('Chamado do cuidador','comando de movimento');},false);
 
   let lastFrame=performance.now(),lastSample=0,lastSave=performance.now(),lastRender=0;
-  let prevState=null,prevPerch=null;
+  let prevState=null,prevPerch=null,prevArea=null,prevDate=null;
   const oldStep=stepSimulation;
   stepSimulation=function(...args){
     const before={x:flyPos.x,y:flyPos.y,z:flyPos.z};
@@ -200,13 +279,19 @@
     const dt=Math.max(0,Math.min(0.10,(now-lastFrame)/1000));
     lastFrame=now;
     const d=today(),state=classify(), assisted=!!(callTarget.active||flightBoostTimer>0);
+    const date=dayKey(new Date()), area=areaAt(flyPos);
+    if(date!==prevDate){prevArea=null;prevDate=date;}
     if(dt>0){
       d.seconds+=dt;
       d.times[state.name]=(d.times[state.name]||0)+dt;
       d.distance+=Math.hypot(flyPos.x-before.x,flyPos.y-before.y,flyPos.z-before.z);
       if(state.perch)d.perches[state.perch.label]=(d.perches[state.perch.label]||0)+dt;
       d.cells[gridIndex()]+=dt;
+      d.areas[area]=(d.areas[area]||0)+dt;
+      if(state.name==='sleep')d.sleepAreas[area]=(d.sleepAreas[area]||0)+dt;
       if(assisted)d.assistedSeconds+=dt;
+      else d.freeAreas[area]=(d.freeAreas[area]||0)+dt;
+      if(prevArea!==area){d.visits[area]=(d.visits[area]||0)+1;prevArea=area;}
     }
     if(prevState!==state.name || prevPerch!==(state.perch?state.perch.id:null)){
       if(state.name==='sleep')log('Adormeceu','');
@@ -218,10 +303,11 @@
     if(now-lastSample>2000){
       lastSample=now;
       data.samples.push([new Date().toISOString(),+flyPos.x.toFixed(3),+flyPos.y.toFixed(3),+flyPos.z.toFixed(3),
-        state.name,assisted?1:0,+pet.energy.toFixed(4),+pet.rest.toFixed(4),+pet.bond.toFixed(4),brain.tierKey]);
+        state.name,assisted?1:0,+pet.energy.toFixed(4),+pet.rest.toFixed(4),+pet.bond.toFixed(4),brain.tierKey,area,
+        state.perch ? state.perch.label : '']);
       limit();
     }
-    if(now-lastRender>4000){lastRender=now;render();}
+    if(now-lastRender>5000){lastRender=now;observations(d,state);render();}
     if(now-lastSave>30000){lastSave=now;persist();}
     return result;
   };
