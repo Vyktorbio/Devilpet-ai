@@ -1868,15 +1868,10 @@ btnPlay.addEventListener('click', () => {
   btnPlay.classList.toggle('active', running);
 });
 
-const btnMaze = document.getElementById('btn-maze');
-btnMaze.addEventListener('click', () => {
-  mazeEnabled = !mazeEnabled;
-  mazeGroup.visible = mazeEnabled;
-  btnMaze.classList.toggle('active', mazeEnabled);
-  btnMaze.textContent = mazeEnabled ? 'Labirinto: Ligado' : 'Labirinto: Desligado';
-  statusLine.textContent = mazeEnabled
-    ? 'Labirinto 3D ativado! A mosca precisa contornar os corredores (ou voar por cima).'
-    : 'Labirinto 3D removido: terrário aberto para voo livre.';
+document.getElementById('scenario-select').addEventListener('change',(event)=>{
+  applyScenario(event.target.value);
+  const names={cemetery:'Cemitério',maze:'Labirinto',ground:'Circuito no chão',air:'Circuito aéreo',clean:'Arena limpa'};
+  statusLine.textContent=names[activeScenario]+': cenário alterado sem reiniciar o cérebro ou apagar memórias.';
 });
 
 document.querySelectorAll('.place-btn').forEach(btn => {
@@ -1981,6 +1976,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       shortW: Array.from(brain.shortW),
       longW: Array.from(brain.longW),
       pet, score, streak, missionIdx, missionHits, flyPos,
+      scenario:activeScenario, scenarioStats:scenarioWorld.snapshot(),
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
       neuroEthology:neuroEthology.snapshot()
     };
@@ -2017,6 +2013,8 @@ document.getElementById('btn-load').addEventListener('click', () => {
     score = d.score || 0; streak = d.streak || 0;
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;
+    scenarioWorld.restore(d.scenarioStats);
+    applyScenario(d.scenario||'cemetery');
     document.querySelectorAll('.tier-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === brain.tierKey));
     statusLine.textContent = `Pet "${document.getElementById('pet-name').value}" restaurado (${brain.cfg.name}).`;
   } catch (e) {
@@ -2030,6 +2028,9 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'x' || e.key === 'X' || e.key === '-') { triggerReinforcement(-1.0); }
 });
 
+
+// Keep the original cemetery unless restoring a specific saved scenario.
+applyScenario('cemetery');
 
 // The optional neural self-tests remain available as pure functions in the engine,
 // but the intrusive standalone experimental panel has been removed.
