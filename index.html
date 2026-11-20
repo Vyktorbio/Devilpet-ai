@@ -369,7 +369,7 @@
       <div class="btn-group">
         <span style="font-size: 11.5px; color: var(--muted); padding: 0 6px;">Clique no 3D:</span>
         <button type="button" class="place-btn active" data-place="nectar">Sangue</button>
-        <button type="button" class="place-btn" data-place="ball">Bolinha</button>
+        <button type="button" class="place-btn" data-place="ball">Bolinha</button><button type="button" class="place-btn" data-place="pond">Lago</button>
         <button type="button" class="place-btn" data-place="pillar">Obstáculo</button>
         <button type="button" class="place-btn" data-place="call">Chamar Pet</button>
         <button type="button" id="btn-clear-custom">Limpar Itens</button>
@@ -430,6 +430,7 @@
         <div class="elig-head"><span>Energia (6 h sem alimento)</span><span id="v-energy">78%</span></div>
         <div class="bar-track"><div class="bar-fill" id="b-energy" style="width: 78%; background: var(--pos);"></div></div>
       </div>
+      <div class="vital-box"><div class="elig-head"><span>Hidratação</span><span id="v-hydration">80%</span></div><div class="bar-track"><div class="bar-fill" id="b-hydration" style="width:80%;background:#38bdf8"></div></div></div>
       <div class="vital-box">
         <div class="elig-head"><span>Descanso (R5)</span><span id="v-rest">82%</span></div>
         <div class="bar-track"><div class="bar-fill" id="b-rest" style="width: 82%; background: var(--purple);"></div></div>
@@ -911,6 +912,14 @@ ballMesh.castShadow = true;
 ballMesh.position.set(3.2, BALL_R, 0.8);
 scene.add(ballMesh);
 let ballState = { x: 3.2, z: 0.8, vx: 0, vz: 0 };
+const pondGroup=new THREE.Group();
+const pondRim=new THREE.Mesh(new THREE.CylinderGeometry(1.65,1.7,0.14,40),new THREE.MeshStandardMaterial({color:0x64748b,roughness:0.9}));
+pondRim.position.y=0.045;pondGroup.add(pondRim);
+const pondWater=new THREE.Mesh(new THREE.CylinderGeometry(1.43,1.43,0.045,40),new THREE.MeshPhysicalMaterial({color:0x38bdf8,transparent:true,opacity:0.77,roughness:0.14}));
+pondWater.position.y=0.14;pondGroup.add(pondWater);
+pondGroup.visible=false;scene.add(pondGroup);
+let pondState={active:false,x:0,z:0};
+let waterVisits=0,waterDrinkingSeconds=0,waterContact=false;
 
 // The neural engine is independent of scene rendering and geometric events.
 const scenarioWorld=new DevilPetScenarioWorld(THREE,scene);
@@ -1148,7 +1157,7 @@ let clockSec = 0;
 let flyPos = { x: 0, y: 1.2, z: 0, vy: 0, angle: -0.4, flying: true, perchId: null };
 let flightBoostTimer = 0;
 let trailPoints = [];
-let pet = { energy: 0.78, rest: 0.82, curiosity: 0.65, bond: 0.20 };
+let pet = { energy: 0.78, hydration: 0.80, rest: 0.82, curiosity: 0.65, bond: 0.20 };
 let score = 0, streak = 0, missionIdx = 0, missionHits = 0;
 let lastZoneId = null;
 
@@ -1175,7 +1184,8 @@ function detectPerch() {
 
 function computePersonality(tel) {
   if (sleeping) return 'Dormindo (LTM)';
-  if (pet.energy < 0.28) return 'Faminta';
+  if (pet.hydration < 0.28) return 'Com sede';
+   if (pet.energy < 0.28) return 'Faminta';
   if (pet.rest < 0.25) return 'Exausta';
   if (tel.prefSky > 1.22) return 'Acrobata Aérea!';
   if (tel.prefRed > 1.22) return 'Interessada no alimento';
@@ -1358,6 +1368,8 @@ function stepSimulation() {
   const metabolismDt = Math.min(0.10, Math.max(0, (metabolismNow - lastMetabolismStamp) / 1000));
   lastMetabolismStamp = metabolismNow;
   refreshSleepDay();
+  pet.hydration=Math.max(0.02,Math.min(1,Number.isFinite(pet.hydration)?pet.hydration:0.8));
+  pet.hydration=Math.max(0.02,pet.hydration-metabolismDt/(3*3600)*(sleeping?0.35:flyPos.y>0.28?1.7:1));
   if (!sleeping && pet.rest <= 0.22) setPetSleep(true, true);
   if (sleeping) {
     sleepElapsedSeconds += metabolismDt;
@@ -1375,7 +1387,10 @@ function stepSimulation() {
     Math.floor(sleepTodaySeconds / 60) + ' / 60 min';
   document.getElementById('b-daily-sleep').style.width =
     Math.min(100, sleepTodaySeconds / SLEEP_DAILY_GOAL_SECONDS * 100).toFixed(1) + '%';
-  pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.55 + 0.45 * pet.bond)));
+  pet.curiosity = Math.max(0.05, Math.min(1.0, pet.energy * pet.rest * (0.5+0.5*pet.hydration) * (0.55 + 0.45 * pet.bond)));
+  const drinking=pondState.active&&!sleeping&&Math.hypot(flyPos.x-pondState.x,flyPos.z-pondState.z)<1.38&&flyPos.y<0.55&&pet.hydration<0.98;
+  if(drinking){pet.hydration=Math.min(1,pet.hydration+metabolismDt/10);waterDrinkingSeconds+=metabolismDt;if(!waterContact){waterVisits++;waterContact=true;}}
+  else waterContact=false;
 
   // Central-complex-inspired heading integrator: noisy path integration.
   neuroEthology.heading=0.97*neuroEthology.heading+0.03*flyPos.angle;
@@ -1715,6 +1730,8 @@ function stepSimulation() {
   document.getElementById('pet-personality').textContent = computePersonality(tel);
   document.getElementById('v-energy').textContent = `${Math.round(pet.energy * 100)}%`;
   document.getElementById('b-energy').style.width = `${Math.round(pet.energy * 100)}%`;
+  document.getElementById('v-hydration').textContent = `${Math.round(pet.hydration*100)}%`;
+  document.getElementById('b-hydration').style.width = `${Math.round(pet.hydration*100)}%`;
   document.getElementById('v-rest').textContent = `${Math.round(pet.rest * 100)}%`;
   document.getElementById('b-rest').style.width = `${Math.round(pet.rest * 100)}%`;
   document.getElementById('v-curiosity').textContent = `${Math.round(pet.curiosity * 100)}%`;
@@ -1785,6 +1802,9 @@ function handleViewportClick(clientX, clientY) {
     nectarGroup.visible = true;
     playTone(540, 0.12, 'sine', 0.07);
     statusLine.textContent = `Gota de sangue colocada em (${px.toFixed(1)}, ${pz.toFixed(1)}).`;
+  } else if (placeMode === 'pond') {
+    pondState={active:true,x:px,z:pz};pondGroup.position.set(px,0,pz);pondGroup.visible=true;
+    statusLine.textContent='Lago colocado. A mosca pode beber quando o encontrar.';
   } else if (placeMode === 'ball') {
     ballState = { x: px, z: pz, vx: (Math.random() - 0.5) * 0.18, vz: (Math.random() - 0.5) * 0.18 };
     ballMesh.position.set(px, BALL_R, pz);
@@ -1903,6 +1923,7 @@ document.querySelectorAll('.place-btn').forEach(btn => {
     const labels = {
       nectar: 'Clique em qualquer ponto do chão 3D para pingar Sangue.',
       ball: 'Clique em qualquer ponto do chão 3D para posicionar a Bolinha.',
+      pond: 'Clique no chão para posicionar o lago removível.',
       pillar: 'Clique em qualquer ponto do chão 3D para construir um Obstáculo.',
       call: 'Clique em qualquer ponto do chão 3D para chamar seu pet até lá.'
     };
@@ -1911,6 +1932,7 @@ document.querySelectorAll('.place-btn').forEach(btn => {
 });
 
 document.getElementById('btn-clear-custom').addEventListener('click', () => {
+   pondState.active=false;pondGroup.visible=false;
   for (const p of customPillars) customGroup.remove(p.mesh);
   customPillars = [];
   nectarState.active = false;
@@ -1996,7 +2018,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
       rng: brain.rng.getState(),
       shortW: Array.from(brain.shortW),
       longW: Array.from(brain.longW),
-      pet, score, streak, missionIdx, missionHits, flyPos,
+      pet, pondState, waterVisits, waterDrinkingSeconds, score, streak, missionIdx, missionHits, flyPos,
       scenario:activeScenario, scenarioStats:scenarioWorld.snapshot(),
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
       neuroEthology:neuroEthology.snapshot()
@@ -2019,7 +2041,11 @@ document.getElementById('btn-load').addEventListener('click', () => {
     brain.rng.setState(d.rng || 42);
     if (d.shortW && d.shortW.length === brain.shortW.length) brain.shortW.set(d.shortW);
     if (d.longW && d.longW.length === brain.longW.length) brain.longW.set(d.longW);
-    if (d.pet) pet = d.pet;
+    if (d.pet) pet = {...pet,...d.pet};
+     pet.hydration=Number.isFinite(pet.hydration)?Math.max(0.02,Math.min(1,pet.hydration)):0.8;
+     if(d.pondState){pondState=d.pondState;pondGroup.visible=!!pondState.active;pondGroup.position.set(pondState.x||0,0,pondState.z||0);}
+     waterVisits=Number.isFinite(d.waterVisits)?d.waterVisits:0;
+     waterDrinkingSeconds=Number.isFinite(d.waterDrinkingSeconds)?d.waterDrinkingSeconds:0;
     sleeping = !!d.sleeping;
     sleepElapsedSeconds = Number.isFinite(d.sleepElapsedSeconds) ? Math.max(0,d.sleepElapsedSeconds) : 0;
     sleepStartRest = Number.isFinite(d.sleepStartRest) ? d.sleepStartRest : pet.rest;
