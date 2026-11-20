@@ -1,0 +1,14 @@
+[package]
+name = "devilpet_brain"
+version = "0.1.0"
+edition = "2021"
+description = "Headless, portable Rust port of DevilPet AI's reduced neural engine"
+license = "MIT"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "devilpet-reference"
+path = "src/bin/reference.rs"
