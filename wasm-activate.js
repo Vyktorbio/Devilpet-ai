@@ -1,217 +1,346 @@
-/* DevilPet: dynamic Rust WebAssembly runtime.
- * Keeps original JS engine, checks full-state compatibility and falls back safely.
- * This module does not alter neural or plasticity rules.
+/**
+ * DevilPet neural runtime: reliable, opt-in Rust engine for the browser.
+ *
+ * Architecture: UI/physics (index.html) -> runtime port -> Rust WASM/JS neurons.
+ * No controller edits to neural-engine.js; all state migrations are transactional.
+ * In case of any activation or runtime failure, the stable JS pet continues.
  */
 const host = window.DevilPetRuntime;
 const status = document.getElementById('brain-runtime');
 const toggle = document.getElementById('brain-runtime-toggle');
-let WasmSparseBrain = null, WasmOdorBrain = null;
+const bootVersion = 'arch2';
+let RustSparse = null;
+let RustOdor = null;
+let wasmReady = false;
 let mode = 'javascript';
+let fault = null;
+let fallbackBrain = null;
+let fallbackOdor = null;
 
-function show(text) {
-  if(status) status.textContent = text;
-  if(toggle) {
-    toggle.disabled = !WasmSparseBrain || !WasmOdorBrain;
-    toggle.textContent = !WasmSparseBrain ? 'Rust indisponível' :
-      mode === 'rust' ? 'Usar JavaScript' : 'Usar Rust';
+function report(message) {
+  if (status) status.textContent = message;
+  if (toggle) {
+    toggle.disabled = !wasmReady;
+    toggle.textContent = !wasmReady ? 'Rust ainda indisponível' :
+      mode === 'rust' ? 'Voltar ao JavaScript' : 'Ativar motor Rust';
+    toggle.setAttribute('aria-pressed', String(mode === 'rust'));
   }
 }
-show('Motor: JavaScript (carregando Rust…)');
+function isClose(a,b,tolerance=3e-9) {
+  return Number.isFinite(a) && Number.isFinite(b) &&
+    Math.abs(a-b) <= tolerance * Math.max(1,Math.abs(a),Math.abs(b));
+}
+function ensure(cond,message) {
+  if (!cond) throw new Error(message);
+}
+function currentTier() { return host.getBrain().tierKey; }
+report('Motor: JavaScript (inicialização segura)');
 
-class WeightView {
+class WeightPort {
   constructor(read, write, length) {
-    this._read = read; this._write = write; this.length = length;
+    this.read=read;
+    this.write=write;
+    this.length=length;
   }
-  *[Symbol.iterator]() { yield* this._read(); }
-  set(values, offset = 0) {
-    const arr = this._read();
-    const vals = Array.from(values);
-    if(offset < 0 || offset + vals.length > arr.length) throw new RangeError('pesos fora do limite');
-    arr.set(vals, offset);
-    this._write(Array.from(arr));
+  *[Symbol.iterator]() { yield* this.read(); }
+  set(source,offset=0) {
+    const target=this.read();
+    const values=Array.from(source);
+    ensure(Number.isInteger(offset)&&offset>=0&&offset+values.length<=target.length,
+      'Intervalo de pesos inválido');
+    ensure(values.every(Number.isFinite),'Pesos sinápticos não finitos');
+    target.set(values,offset);
+    this.write(Array.from(target));
   }
-  fill(v) { const arr = this._read(); arr.fill(v); this._write(Array.from(arr)); return this; }
+  fill(value) {
+    ensure(Number.isFinite(value),'Valor sináptico inválido');
+    const target=this.read();
+    target.fill(value);
+    this.write(Array.from(target));
+    return this;
+  }
 }
 
 class RustSparseAdapter {
-  constructor(tierKey, seed = 42) {
-    this.isRust = true;
-    this.tierKey = tierKey;
-    this.cfg = host.tiers[tierKey];
-    if(!this.cfg) throw new Error('Arquitetura desconhecida: ' + tierKey);
-    this.nKC = this.cfg.nKC;
-    this.nPlastic = 2*this.nKC;
-    this.nTotal = 30 + this.nKC + this.cfg.nMBON + 12;
-    this.dt = 0.25;
-    this.inner = new WasmSparseBrain(tierKey,seed);
-    this.mbonRate = Float64Array.from(this.inner.mbon_rates());
-    const part = name => new WeightView(
-      () => Float64Array.from(name === 'shortW' ? this.inner.get_short_weights() : this.inner.get_long_weights()),
-      arr => {
-        const full = JSON.parse(this.inner.full_snapshot_json());
-        full[name] = arr;
-        this.inner.restore_full_json(JSON.stringify(full));
+  constructor(tierKey,seed=42) {
+    ensure(RustSparse,'Rust não inicializado');
+    this.isRust=true;
+    this.tierKey=tierKey;
+    this.cfg=host.tiers[tierKey];
+    ensure(this.cfg,'Arquitetura desconhecida');
+    this.nKC=this.cfg.nKC;
+    this.nPlastic=this.nKC*2;
+    this.nTotal=30+this.nKC+this.cfg.nMBON+12;
+    this.dt=.25;
+    this.inner=new RustSparse(tierKey,seed);
+    this.mbonRate=Float64Array.from(this.inner.mbon_rates());
+    const weight=name=>new WeightPort(
+      ()=>Float64Array.from(name==='shortW'?
+        this.inner.get_short_weights():this.inner.get_long_weights()),
+      values=>{
+        const snapshot=this.fullSnapshot();
+        snapshot[name]=values;
+        this.restoreFull(snapshot);
       },
       this.nPlastic
     );
-    this.shortW = part('shortW');
-    this.longW = part('longW');
-    // Only used by the pre-existing reset handler, never during learning.
-    this.elig = { fill: v => {
-      if(v !== 0) throw new Error('Elegibilidade só admite limpeza');
+    this.shortW=weight('shortW');
+    this.longW=weight('longW');
+    this.elig={fill:value=>{
+      ensure(value===0,'Apenas limpeza da elegibilidade disponível');
       this.inner.reset_weights();
     }};
-    this.rng = {
-      getState: () => this.inner.get_rng_state(),
-      setState: v => this.inner.set_rng_state(v >>> 0)
+    this.rng={
+      getState:()=>this.inner.get_rng_state(),
+      setState:value=>this.inner.set_rng_state(value>>>0)
     };
   }
   get tick() { return this.inner.get_tick(); }
-  set tick(v) { this.inner.set_tick(v); }
-  stepWindow(cues, modulation, consolidate, learn, durationMs = 15.0) {
-    const out = this.inner.step(cues.cyan,cues.amber,cues.red,cues.ball,cues.sky,
-      modulation,consolidate,learn,durationMs);
-    this.mbonRate = Float64Array.from(this.inner.mbon_rates());
+  set tick(value) { this.inner.set_tick(value); }
+  stepWindow(cue,modulation,consolidate,learn,duration=15) {
+    const out=this.inner.step(cue.cyan,cue.amber,cue.red,cue.ball,cue.sky,
+      modulation,consolidate,learn,duration);
+    this.mbonRate=Float64Array.from(this.inner.mbon_rates());
     return out;
   }
   telemetry() { return this.inner.telemetry(); }
   fullSnapshot() { return JSON.parse(this.inner.full_snapshot_json()); }
-  restoreFull(s) {
-    this.inner.restore_full_json(JSON.stringify(s));
-    this.mbonRate = Float64Array.from(this.inner.mbon_rates());
+  restoreFull(snapshot) {
+    this.inner.restore_full_json(JSON.stringify(snapshot));
+    this.mbonRate=Float64Array.from(this.inner.mbon_rates());
   }
-  restoreFromLiveJs(js) {
+  importLiveJs(jsBrain) {
+    ensure(!jsBrain.isRust,'Esperado cérebro JavaScript');
     this.restoreFull({
-      tierKey: js.tierKey,
-      tick: js.tick,
-      rng: js.rng.getState(),
-      shortW: Array.from(js.shortW),
-      longW: Array.from(js.longW),
-      kc_connections: js.kcPre.map(row=>Array.from(row)),
-      eligibility: Array.from(js.elig),
-      kc_voltage: Array.from(js.kcV),
-      mbon_rate: Array.from(js.mbonRate),
-      working_mem: Array.from(js.workingMem),
-      last_active_kc: js.lastActiveKC
+      tierKey:jsBrain.tierKey,
+      tick:jsBrain.tick,
+      rng:jsBrain.rng.getState(),
+      shortW:Array.from(jsBrain.shortW),
+      longW:Array.from(jsBrain.longW),
+      kc_connections:jsBrain.kcPre.map(row=>Array.from(row)),
+      eligibility:Array.from(jsBrain.elig),
+      kc_voltage:Array.from(jsBrain.kcV),
+      mbon_rate:Array.from(jsBrain.mbonRate),
+      working_mem:Array.from(jsBrain.workingMem),
+      last_active_kc:jsBrain.lastActiveKC
     });
+    const snapshot=this.fullSnapshot();
+    ensure(snapshot.tick===jsBrain.tick &&
+       snapshot.rng===jsBrain.rng.getState() &&
+       snapshot.shortW.length===jsBrain.shortW.length &&
+       isClose(snapshot.shortW.reduce((a,b)=>a+Math.abs(b),0),
+          Array.from(jsBrain.shortW).reduce((a,b)=>a+Math.abs(b),0)),
+       'Importação da mente inconsistente');
   }
+  dispose() { this.inner?.free?.(); }
 }
-
 class RustOdorAdapter {
-  constructor(seed = 47) {
-    this.isRust = true;
-    this.inner = new WasmOdorBrain(seed);
-    this.visits = Uint32Array.from(this.inner.get_visits());
+  constructor(seed=47) {
+    ensure(RustOdor,'Rust olfativo não inicializado');
+    this.isRust=true;
+    this.inner=new RustOdor(seed);
+    this.visits=Uint32Array.from(this.inner.get_visits());
   }
   choose(sensory,pet) {
-    if(!Array.isArray(sensory) || sensory.length !== 4) throw new Error('4 odores necessários');
-    return this.inner.choose(...sensory.map(s=>s.food),pet.energy,pet.rest,pet.curiosity);
+    ensure(Array.isArray(sensory)&&sensory.length===4,'Esperados quatro sinais olfativos');
+    return this.inner.choose(...sensory.map(s=>s.food),
+      pet.energy,pet.rest,pet.curiosity);
   }
-  odorValue(i) { return this.inner.odor_value(i); }
-  reinforce(i, val) { this.inner.reinforce(i,val); }
+  odorValue(index) { return this.inner.odor_value(index); }
+  reinforce(index,reward) { this.inner.reinforce(index,reward); }
   rest() { this.inner.rest(); }
   snapshot() {
     this.inner.set_visits(Array.from(this.visits));
     return JSON.parse(this.inner.snapshot_json());
   }
-  restore(s) {
-    if(!s) return;
-    this.inner.restore_json(JSON.stringify(s));
-    this.visits = Uint32Array.from(this.inner.get_visits());
+  restore(data) {
+    if(!data)return;
+    this.inner.restore_json(JSON.stringify(data));
+    this.visits=Uint32Array.from(this.inner.get_visits());
   }
   get steps() { return this.inner.get_steps(); }
   get rewards() { return this.inner.get_rewards(); }
   get punishments() { return this.inner.get_punishments(); }
   get heading() { return this.inner.get_heading(); }
-  set heading(v) { this.inner.set_heading(v); }
+  set heading(value) { this.inner.set_heading(value); }
   get activity() { return this.inner.get_activity(); }
-  set activity(v) { this.inner.set_activity(v); }
+  set activity(value) { this.inner.set_activity(value); }
   get lastChoice() { return this.inner.get_last_choice(); }
-  set lastChoice(v) { this.inner.set_last_choice(v); }
+  set lastChoice(value) { this.inner.set_last_choice(value); }
+  dispose() { this.inner?.free?.(); }
 }
-
-function jsBrainFromRust(current) {
-  const b = new host.JsSparse(current.tierKey,42);
-  const snap = current.fullSnapshot();
-  b.tick=snap.tick;
-  b.rng.setState(snap.rng);
-  b.shortW.set(snap.shortW);
-  b.longW.set(snap.longW);
-  b.elig.set(snap.eligibility);
-  b.kcV.set(snap.kc_voltage);
-  b.mbonRate.set(snap.mbon_rate);
-  b.workingMem.set(snap.working_mem);
-  b.kcPre = snap.kc_connections.map(row=>Array.from(row));
-  b.lastActiveKC = snap.last_active_kc;
-  return b;
+function toJsSparse(source) {
+  if(!source.isRust)return source;
+  const state=source.fullSnapshot();
+  const result=new host.JsSparse(source.tierKey,42);
+  result.tick=state.tick;
+  result.rng.setState(state.rng);
+  result.shortW.set(state.shortW);
+  result.longW.set(state.longW);
+  result.elig.set(state.eligibility);
+  result.kcV.set(state.kc_voltage);
+  result.mbonRate.set(state.mbon_rate);
+  result.workingMem.set(state.working_mem);
+  result.kcPre=state.kc_connections.map(row=>Array.from(row));
+  result.lastActiveKC=state.last_active_kc;
+  return result;
 }
-function jsOdorFromRust(current) {
-  const m = new host.JsOdor(47);
-  m.restore(current.snapshot());
-  m.heading=current.heading;
-  m.activity=current.activity;
-  m.lastChoice=current.lastChoice;
-  return m;
+function toJsOdor(source) {
+  if(!source.isRust)return source;
+  const result=new host.JsOdor(47);
+  result.restore(source.snapshot());
+  result.heading=source.heading;
+  result.activity=source.activity;
+  result.lastChoice=source.lastChoice;
+  return result;
 }
-function rustOdorFromJs(current) {
-  const m = new RustOdorAdapter(47);
-  m.restore(current.snapshot());
-  m.heading = current.heading;
-  m.activity = current.activity;
-  m.lastChoice = current.lastChoice;
-  return m;
+function toRustOdor(source) {
+  const result=new RustOdorAdapter(47);
+  result.restore(source.snapshot());
+  result.heading=source.heading;
+  result.activity=source.activity;
+  result.lastChoice=source.lastChoice;
+  return result;
 }
-function switchToRust() {
-  if(!WasmSparseBrain || !WasmOdorBrain) return;
-  const current=host.getBrain(), odor=host.getOdor();
-  if(current.isRust && odor.isRust){mode='rust';show('Motor: Rust / WebAssembly (2 circuitos)');return;}
-  const upgraded=new RustSparseAdapter(current.tierKey,42);
-  // Preserve a full Rust state if the game has not taken a step since restoring.
-  let exact = false;
+function selfTest() {
+  const original=new host.JsSparse('drosophila',42);
+  const rust=new RustSparseAdapter('drosophila',42);
+  const olfJs=new host.JsOdor(47);
+  const olfRust=new RustOdorAdapter(47);
   try {
-    const saved=JSON.parse(localStorage.getItem('drosophila_3d_trainer_v1')||'null');
-    if(saved && saved.rustState && current.tick===saved.tick &&
-       current.rng.getState()===saved.rng && saved.rustState.tierKey===current.tierKey){
-      upgraded.restoreFull(saved.rustState);exact=true;
+    const cues={cyan:.75,amber:.05,red:.1,ball:.4,sky:.5};
+    for(const modulation of [1,0,-1]){
+      const reference=original.stepWindow(cues,modulation,.25,true,15);
+      const actual=rust.stepWindow(cues,modulation,.25,true,15);
+      ensure(isClose(reference.sparsityPct,actual.sparsityPct)&&
+        reference.dnSpikes===actual.dnSpikes,'O circuito esparso divergiu');
+      ensure(original.rng.getState()===rust.rng.getState(),'RNG divergente');
     }
-  }catch(e){console.warn('Rust state not restorable, using live JS state',e);}
-  if(!exact)upgraded.restoreFromLiveJs(current);
-  const upgradedOdor=rustOdorFromJs(odor);
-  host.setBrain(upgraded);
-  host.setOdor(upgradedOdor);
-  mode='rust';show('Motor: Rust / WebAssembly (2 circuitos)');
-}
-function switchToJs() {
-  const current=host.getBrain(), odor=host.getOdor();
-  if(current.isRust) host.setBrain(jsBrainFromRust(current));
-  if(odor.isRust) host.setOdor(jsOdorFromRust(odor));
-  mode='javascript';
-  show('Motor: JavaScript (original)');
-}
-if(toggle){
-  toggle.addEventListener('click',()=>{
+    for(let i=0;i<original.shortW.length;i++){
+      ensure(isClose(original.shortW[i],Array.from(rust.shortW)[i]),'Pesos divergentes');
+    }
+    const signals=Array.from({length:4},()=>({food:.5}));
+    const vitals={energy:.7,rest:.6,curiosity:.8};
+    const j=olfJs.choose(signals,vitals);
+    const w=olfRust.choose(signals,vitals);
+    ensure(j.activity===w.activity&&j.target===w.target,'Decisão olfativa divergente');
+    olfJs.reinforce(0,1);olfRust.reinforce(0,1);
+    ensure(isClose(olfJs.odorValue(0),olfRust.odorValue(0)),'Reforço olfativo divergente');
+    // Validate an actual neural state exchange before enabling controls.
+    const copy=new RustSparseAdapter('drosophila',42);
     try {
-      if(mode==='rust')switchToJs();
-      else switchToRust();
-    }catch(e){console.error('Falha ao trocar motor neural',e);show('Troca de motor falhou; ver console.');}
-  });
+      copy.importLiveJs(original);
+      ensure(isClose(copy.telemetry().meanShort,original.telemetry().meanShort),
+         'Transferência de memória divergente');
+    } finally { copy.dispose(); }
+    const replay=new host.JsSparse('drosophila',42);
+    const snapshot=rust.fullSnapshot();
+    const restored=new RustSparseAdapter('drosophila',42);
+    try {
+      restored.restoreFull(snapshot);
+      ensure(restored.rng.getState()===rust.rng.getState(),'Restauração divergente');
+      // No mutation to the actual pet: the test uses disposable engines.
+      void replay;
+    }finally { restored.dispose(); }
+  } finally { rust.dispose(); olfRust.dispose(); }
 }
-window.DevilPetRustBoot = (async()=>{
+function activate() {
+  ensure(wasmReady,'Motor Rust indisponível');
+  if(mode==='rust')return true;
+  const beforeBrain=host.getBrain();
+  const beforeOdor=host.getOdor();
+  let nextBrain=null,nextOdor=null;
   try {
-    // Dynamically import: an absent WASM asset must never break the JS pet.
-    const pkg = await import('./rust/devilpet_brain/pkg/devilpet_brain.js?v=wasm1');
+    const jsBrain=toJsSparse(beforeBrain);
+    const jsOdor=toJsOdor(beforeOdor);
+    nextBrain=new RustSparseAdapter(jsBrain.tierKey,42);
+    nextBrain.importLiveJs(jsBrain);
+    nextOdor=toRustOdor(jsOdor);
+    // Commit atomically only after both models are ready.
+    host.setBrain(nextBrain);
+    host.setOdor(nextOdor);
+    fallbackBrain=jsBrain;
+    fallbackOdor=jsOdor;
+    mode='rust';
+    report('Motor: Rust / WebAssembly (ativo)');
+    return true;
+  }catch(error){
+    host.setBrain(beforeBrain);
+    host.setOdor(beforeOdor);
+    nextBrain?.dispose();
+    nextOdor?.dispose();
+    throw error;
+  }
+}
+function deactivate() {
+  const beforeBrain=host.getBrain();
+  const beforeOdor=host.getOdor();
+  let newBrain,newOdor;
+  try {
+    newBrain=toJsSparse(beforeBrain);
+    newOdor=toJsOdor(beforeOdor);
+  }catch(error){
+    // Last consistent JS state captured at activation is preferable to an unusable game.
+    if(!fallbackBrain||!fallbackOdor)throw error;
+    console.warn('Não foi possível converter o estado atual; restaurando checkpoint de segurança',error);
+    newBrain=fallbackBrain;
+    newOdor=fallbackOdor;
+  }
+  host.setBrain(newBrain);
+  host.setOdor(newOdor);
+  mode='javascript';
+  beforeBrain.isRust&&beforeBrain.dispose?.();
+  beforeOdor.isRust&&beforeOdor.dispose?.();
+  report('Motor: JavaScript (estável)');
+  return true;
+}
+function recover(error) {
+  if(!(host.getBrain()?.isRust||host.getOdor()?.isRust))return false;
+  console.error('Motor Rust interrompido; revertendo ao JavaScript',error);
+  try {
+    deactivate();
+    fault=error?.message||String(error);
+    report('Motor: JavaScript (recuperado de falha Rust)');
+    return true;
+  }catch(secondError){
+    console.error('Recuperação do motor neural falhou',secondError);
+    return false;
+  }
+}
+window.DevilPetRustRecover=recover;
+window.DevilPetRustStatus=()=>({mode,ready:wasmReady,error:fault});
+window.DevilPetRustActivate=activate;
+window.DevilPetRustDeactivate=deactivate;
+toggle?.addEventListener('click',()=>{
+  try {
+    if(mode==='rust')deactivate();
+    else activate();
+  }catch(error){
+    fault=error.message||String(error);
+    console.error('Troca de motor neural cancelada',error);
+    report('Motor: JavaScript (falha ao ativar Rust)');
+  }
+});
+window.DevilPetRustBoot=(async()=>{
+  try {
+    const pkg=await import('./rust/devilpet_brain/pkg/devilpet_brain.js?v='+bootVersion);
     await pkg.default();
-    WasmSparseBrain=pkg.WasmSparseBrain;
-    WasmOdorBrain=pkg.WasmOdorBrain;
-    if(!WasmSparseBrain || !WasmOdorBrain) throw new Error('Bindings incompletos');
+    RustSparse=pkg.WasmSparseBrain;
+    RustOdor=pkg.WasmOdorBrain;
+    ensure(RustSparse&&RustOdor,'Arquivo WASM incompleto');
+    selfTest();
+    wasmReady=true;
     host.installFactory({
       brain:(tier,seed)=>mode==='rust'?new RustSparseAdapter(tier,seed):new host.JsSparse(tier,seed),
-      odor:(seed)=>mode==='rust'?new RustOdorAdapter(seed):new host.JsOdor(seed)
+      odor:seed=>mode==='rust'?new RustOdorAdapter(seed):new host.JsOdor(seed)
     });
-    switchToRust();
+    report('Motor: JavaScript (Rust validado e pronto para ativar)');
+    return true;
   }catch(error){
-    console.warn('DevilPet: Rust WASM indisponível. Mantendo cérebro JavaScript.',error);
-    mode='javascript';
-    show('Motor: JavaScript (Rust indisponível)');
+    fault=error?.message||String(error);
+    wasmReady=false;
+    console.warn('Rust WebAssembly indisponível, JavaScript preservado:',error);
+    report('Motor: JavaScript (Rust indisponível neste navegador)');
+    return false;
   }
 })();
