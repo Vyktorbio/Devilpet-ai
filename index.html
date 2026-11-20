@@ -905,6 +905,39 @@ ballMesh.position.set(3.2, BALL_R, 0.8);
 scene.add(ballMesh);
 let ballState = { x: 3.2, z: 0.8, vx: 0, vz: 0 };
 
+// The neural engine is independent of scene rendering and geometric events.
+const scenarioWorld=new DevilPetScenarioWorld(THREE,scene);
+let activeScenario='cemetery';
+const cemeteryFloorMaterial=floor.material;
+const neutralFloorMaterial=new THREE.MeshStandardMaterial({color:0x171b25,roughness:0.93});
+function habitatActive(){return activeScenario==='cemetery'||activeScenario==='maze';}
+function ballAvailable(){return habitatActive()||activeScenario==='ground';}
+function activeTargets(){return habitatActive()?ZONES:scenarioWorld.getTargets();}
+function updateSceneProgress(){document.getElementById('scene-progress').textContent=scenarioWorld.summary();}
+function applyScenario(mode){
+ activeScenario=scenarioWorld.setMode(mode);
+ const home=habitatActive();
+ cemeteryProps.visible=home;
+ mazeEnabled=activeScenario==='maze';
+ mazeGroup.visible=mazeEnabled;
+ floor.visible=activeScenario!=='clean';
+ floor.material=home?cemeteryFloorMaterial:neutralFloorMaterial;
+ arenaBoundaries.visible=activeScenario!=='clean';
+ ballMesh.visible=ballAvailable();
+ customGroup.visible=home;
+ nectarGroup.visible=home&&nectarState.active;
+ callRing.visible=home;
+ if(!home)callTarget.active=false;
+ trailLine.visible=activeScenario!=='clean';
+ pulseRing.visible=activeScenario!=='clean';
+ scene.fog=activeScenario==='clean'?null:cemeteryFog;
+ scene.background.setHex(activeScenario==='clean'?0x11151e:home?0x0b0918:0x0e1421);
+ document.getElementById('scenario-select').value=activeScenario;
+ document.querySelector('.hud-overlay').style.display=activeScenario==='clean'?'none':'';
+ document.querySelector('.hud-bottom').style.display=activeScenario==='clean'?'none':'';
+ updateSceneProgress();
+}
+
 // Detailed Anatomical 3D Drosophila
 const flyGroup = new THREE.Group();
 scene.add(flyGroup);
@@ -1103,7 +1136,7 @@ let lastZoneId = null;
 const statusLine = document.getElementById('status-line');
 
 function detectZone() {
-  for (const z of ZONES) {
+  for (const z of activeTargets()) {
     const dXZ = Math.hypot(flyPos.x - z.x, flyPos.z - z.z);
     const dY = Math.abs(flyPos.y - z.y);
     if (dXZ <= z.radius && dY <= (z.aerial ? 1.35 : 1.15)) return z;
@@ -1112,6 +1145,7 @@ function detectZone() {
 }
 
 function detectPerch() {
+  if(!habitatActive())return null;
   for (const p of PERCHES) {
     const dXZ = Math.hypot(flyPos.x - p.x, flyPos.z - p.z);
     const dY = Math.abs(flyPos.y - p.y);
@@ -1329,12 +1363,12 @@ function stepSimulation() {
 
   // 3D Sensory cues (3 floor zones + 1 aerial sky ring + play ball)
   const cues = { cyan: 0, amber: 0, red: 0, ball: 0, sky: 0 };
-  for (const z of ZONES) {
-    const d3 = Math.hypot(flyPos.x - z.x, flyPos.y - z.y, flyPos.z - z.z);
-    cues[z.id] = Math.max(0, 1.0 - d3 / 11.5);
+  for (const z of activeTargets()) {
+    const d3=Math.hypot(flyPos.x-z.x,flyPos.y-z.y,flyPos.z-z.z);
+    cues[z.id]=Math.max(0,1.0-d3/11.5);
   }
-  const distBall = Math.hypot(flyPos.x - ballState.x, flyPos.y, flyPos.z - ballState.z);
-  cues.ball = Math.max(0, 1.0 - distBall / 9.0);
+  const distBall=Math.hypot(flyPos.x-ballState.x,flyPos.y,flyPos.z-ballState.z);
+  cues.ball=ballAvailable()?Math.max(0,1.0-distBall/9.0):0;
 
   const modToApply = sleeping ? 0 : pendingMod;
   pendingMod = 0;
@@ -1348,13 +1382,22 @@ function stepSimulation() {
 
   let settledZone = null;
   let arrivalDamping = 1.0;
-  for (let i = 0; i < ZONES.length; i++) {
-    const z = ZONES[i];
+  const targets=activeTargets();
+  for(let i=0;i<targets.length;i++){
+    const z=targets[i];
     const dx = z.x - flyPos.x;
     const dy = z.y - flyPos.y;
     const dz = z.z - flyPos.z;
     const rawDist = Math.hypot(dx, dy, dz);
-    const val = brain.mbonRate[z.cueIdx];
+    const val=brain.mbonRate[z.cueIdx];
+    // Use the same learned sensory preference; never force a course or award passage.
+    if(!habitatActive()){
+      const dist=Math.max(0.5,rawDist);
+      desiredX+=(dx/dist)*val*0.8;
+      desiredY+=(dy/dist)*val*0.8;
+      desiredZ+=(dz/dist)*val*0.8;
+      continue;
+    }
     if (val > 0.10 && rawDist < 1.8) {
       const factor = Math.max(0.0, (rawDist - 0.55) / 1.25);
       arrivalDamping = Math.min(arrivalDamping, 0.12 + 0.88 * factor);
@@ -1392,7 +1435,7 @@ function stepSimulation() {
 
   // Slight pull toward nearest elevated leaf perch when rest is low or curious
   let nearestPerch = null, nearestPerchD = 999;
-  for (const p of PERCHES) {
+  for (const p of (habitatActive()?PERCHES:[])) {
     const dp = Math.hypot(flyPos.x - p.x, flyPos.y - p.y, flyPos.z - p.z);
     if (dp < nearestPerchD) { nearestPerchD = dp; nearestPerch = p; }
   }
@@ -1403,7 +1446,7 @@ function stepSimulation() {
   }
 
   let feedingNow = false;
-  if (nectarState.active && !sleeping) {
+  if (habitatActive() && nectarState.active && !sleeping) {
     const dx = nectarState.x - flyPos.x;
     const dz = nectarState.z - flyPos.z;
     const dN = Math.hypot(dx, dz);
@@ -1424,7 +1467,7 @@ function stepSimulation() {
         statusLine.textContent = 'Seu pet terminou a gota de sangue!';
       }
     }
-  } else if (!sleeping && callTarget.active) {
+  } else if (!sleeping && habitatActive() && callTarget.active) {
     const dx = callTarget.x - flyPos.x;
     const dz = callTarget.z - flyPos.z;
     const dC = Math.hypot(dx, dz);
@@ -1439,7 +1482,7 @@ function stepSimulation() {
       callTarget.active = false;
       callRing.material.opacity = 0;
     }
-  } else if (!sleeping && pet.curiosity > 0.45 && distBall < 7.5) {
+  } else if (!sleeping && ballAvailable() && pet.curiosity > 0.45 && distBall < 7.5) {
     const dx = ballState.x - flyPos.x;
     const dz = ballState.z - flyPos.z;
     const playPull = pet.curiosity * (1.0 + Math.max(0, brain.mbonRate[3]));
@@ -1630,7 +1673,7 @@ function stepSimulation() {
 
   // HUD & Telemetry
   const zNow = detectZone();
-  const zName = sleeping ? 'Descansando' : (zNow ? zNow.label : 'Cemitério Aberto');
+  const zName = sleeping ? 'Descansando' : (zNow ? zNow.label : habitatActive()?'Cemitério Aberto':activeScenario==='clean'?'Arena Limpa':'Circuito Livre');
   document.getElementById('hud-zone').innerHTML = `Zona atual: <strong>${zName}</strong>`;
   document.getElementById('hud-action').innerHTML = `Ação: <strong>${actionLabel}</strong> · Altitude: <strong>${(flyPos.y * 2.0).toFixed(1)} cm</strong>`;
 
