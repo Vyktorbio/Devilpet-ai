@@ -8,7 +8,7 @@ const clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,Number.isFinite(x)?x:0));
 const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 class FlyBehavior {
  constructor({seed=17,learningRate=.24}={}){
-  this.seed=seed>>>0;this.learningRate=learningRate;
+  this.seed=(seed>>>0)||0x9e3779b9;this.learningRate=learningRate;
   this.values=new Map();this.eligibility=new Map();
   this.state={energy:1,rest:1,threat:0,curiosity:.6};
   this.mode='explore';this.lastCue=null;this.lastMotor=null;this.steps=0;
@@ -26,7 +26,8 @@ class FlyBehavior {
   const odorL=frame.odors.reduce((s,o)=>s+clamp(o.left),0);
   const odorR=frame.odors.reduce((s,o)=>s+clamp(o.right),0);
   const odor=clamp((odorL+odorR)/2);
-  const cue=odor>.015?'odor':clamp(frame.vision.contrast)>.2?'visual':'neutral';
+  const dominant=frame.odors.reduce((best,o)=>{const strength=clamp(o.left)+clamp(o.right);return strength>best.strength?{identity:String(o.identity||'fruit').slice(0,64),strength}:best;},{identity:'fruit',strength:0});
+  const cue=odor>.015?'odor:'+dominant.identity:clamp(frame.vision.contrast)>.2?'visual':'neutral';
   const value=this.values.get(cue)||0;
   const hunger=1-this.state.energy,fatigue=1-this.state.rest;
   const danger=this.state.threat;
@@ -42,7 +43,7 @@ class FlyBehavior {
   const visual=clamp((clamp(frame.vision.left)-clamp(frame.vision.right)),-1,1);
   const avoidance=clamp((clamp(m.right)-clamp(m.left)), -1,1);
   const obstacle=clamp(m.front);
-  const seek=this.mode==='feed'?1:this.mode==='avoid'?-1:0;
+  const seek=this.mode==='feed'?(value<0?-1:1):this.mode==='avoid'?-1:0;
   const turn=clamp(seek*(gradient*.75+visual*.2)+avoidance*.8+(obstacle>.65?.65:0)+(this.random()-.5)*.15,-1,1);
   const forward=this.mode==='rest'?0:clamp((this.mode==='avoid'?.8:.45)+hunger*.15-obstacle*.65);
   const lift=this.mode==='avoid'?clamp(.3+danger*.6):this.mode==='rest'?0:clamp((frame.airflow?.forward||0)*-.2);
@@ -66,7 +67,8 @@ class FlyBehavior {
   if(s?.version!==1||!Number.isInteger(s.seed)||!Number.isInteger(s.steps)||s.steps<0||!s.values||typeof s.values!=='object')throw new TypeError('invalid snapshot');
   const vals=Object.entries(s.values);
   if(vals.length>100||vals.some(([k,v])=>k.length>64||!Number.isFinite(v)||Math.abs(v)>1))throw new TypeError('invalid memory');
-  this.seed=s.seed>>>0;this.steps=s.steps;this.values=new Map(vals);this.lastCue=null;
+  this.seed=(s.seed>>>0)||0x9e3779b9;this.steps=s.steps;this.values=new Map(vals);this.lastCue=null;
+  if(s.state&&typeof s.state==='object')for(const k of ['energy','rest','threat','curiosity'])if(Number.isFinite(s.state[k]))this.state[k]=clamp(s.state[k]);
  }
 }
 const api=Object.freeze({FlyBehavior});
