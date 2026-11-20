@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Laboratório de Conectomas — DevilPet</title>
+<style>
+:root{font-family:Inter,system-ui,Arial,sans-serif;color:#ebedf2;background:#0c1017}
+*{box-sizing:border-box}body{margin:0}.shell{max-width:1130px;margin:auto;padding:24px 18px 90px}
+header{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap}
+a{color:#a5b9ff;text-underline-offset:3px}a:hover{color:#d0d9ff}
+.eyebrow{color:#9dadd0;text-transform:uppercase;letter-spacing:.16em;font-size:11px;font-weight:700}
+h1{font-size:clamp(30px,4vw,48px);line-height:1.1;margin:12px 0 16px;letter-spacing:-.03em}
+p{line-height:1.65;color:#bec7d7;max-width:760px}.intro{font-size:16px}
+h2{font-size:21px;margin:44px 0 16px}h3{font-size:17px;margin:0 0 12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:16px}
+article{border:1px solid #2a3648;border-radius:15px;background:#151c29;padding:20px;min-width:0}
+.meta{font-size:12px;color:#a6b5cb;line-height:1.7}.tag{display:inline-block;border-radius:99px;padding:3px 9px;background:#27334d;color:#c4d5fa;font-size:12px}
+.source{margin-top:14px;padding-top:12px;border-top:1px solid #2a3648;font-size:13px;display:flex;flex-wrap:wrap;gap:10px 15px}
+.note{border-top:1px solid #2a3648;margin-top:38px;padding-top:20px;color:#c3ccde}
+pre{padding:18px;background:#0b1424;border:1px solid #344158;border-radius:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:#b9c8eb;font-size:12px}
+.status{font-size:12px;color:#8eafed}button{background:#283d65;color:white;padding:8px 12px;border:1px solid #647aa1;border-radius:8px;cursor:pointer}
+</style>
+</head>
+<body>
+<main class="shell">
+<header><div class="eyebrow">DevilPet / Laboratório científico</div><a href="../">Voltar à diabinha</a></header>
+<section>
+<h1>Conectomas completos da mosca</h1>
+<p class="intro">Reconstruções reais do sistema nervoso de <em>Drosophila melanogaster</em>. O foco de 2026 é estudar **o cérebro e o cordão nervoso ventral do mesmo indivíduo**, sem misturar dados de exemplares diferentes.</p>
+<p>Os conectomas estão catalogados; o leitor nativo Rust e o conversor de dados estão no GitHub. Os arquivos gigantes não são carregados automaticamente no navegador nem controlam a diabinha atual.</p>
+</section>
+<h2>Bases científicas</h2>
+<div id="datasets" class="grid"><p>Carregando catálogo de conectomas…</p></div>
+<p id="catalog-status" class="status" aria-live="polite"></p>
+<section class="note">
+<h2>O que existe no motor de pesquisa?</h2>
+<p>Grafo completo dirigido em CSR, IDs originais de neurônios ou segmentos, preservação de pesos e proveniência, leitura por mapeamento de memória, consultas de conexões e propagação matemática experimental. Rust processa os dados <strong>no computador</strong>. A aplicação web permanece com o motor reduzido e com sua memória preservada.</p>
+<p>Um conectoma é o <strong>mapa físico das conexões</strong>, não um cérebro funcional pronto para execução. Propriedades elétricas, neurotransmissores, neuromodulação, plasticidade e controle muscular ainda precisam de modelagem e testes.</p>
+<p><a href="https://github.com/Vyktorbio/Devilpet-ai/tree/main/connectomes">Código, fontes e instruções de importação no GitHub</a></p>
+</section>
+</main>
+<script>
+(async()=>{
+ const host=document.getElementById('datasets');
+ const note=document.getElementById('catalog-status');
+ try{
+  const response=await fetch('./datasets.json',{cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  const c=await response.json();
+  if(c.schema!=='devilpet-connectome-catalog-v1'||!Array.isArray(c.datasets))throw Error('catálogo incompatível');
+  host.replaceChildren();
+  for(const d of c.datasets){
+   const card=document.createElement('article');
+   const title=document.createElement('h3');title.textContent=d.id;card.append(title);
+   const meta=document.createElement('div');meta.className='meta';
+   const parts=[
+    'Escopo: '+(d.anatomy||[]).map(s=>s.replaceAll('_',' ')).join(' + '),
+    'Sexo: '+(d.sex||'não especificado'),
+    'Versão: '+(d.version||'verificar a fonte'),
+    d.neuron_count_reported?'Neurônios relatados: '+d.neuron_count_reported.toLocaleString('pt-BR'):null,
+   ].filter(Boolean);
+   for(const value of parts){const line=document.createElement('div');line.textContent=value;meta.append(line);}
+   card.append(meta);
+   const desc=document.createElement('p');desc.style.fontSize='13px';
+   desc.textContent=d.import||'Consulte a publicação original e a licença para reproduzir os dados.';
+   card.append(desc);
+   const links=document.createElement('div');links.className='source';
+   for(const [label,url] of [['Publicação',d.paper_url],['Dados oficiais',d.access_url],['Arquivo de conexões',d.edges_url]]){
+    if(typeof url!=='string'||!url.startsWith('https://'))continue;
+    const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';
+    a.textContent=label;links.append(a);
+   }
+   card.append(links);host.append(card);
+  }
+  note.textContent=c.datasets.length+' bases catalogadas • os datasets são individuais, não concatenados.';
+ }catch(e){
+  host.textContent='O catálogo não pôde ser carregado. Os dados científicos continuam disponíveis nas fontes oficiais.';
+  note.textContent='Falha de leitura: '+e.message;
+ }
+})();
+</script>
+</body>
+</html>
