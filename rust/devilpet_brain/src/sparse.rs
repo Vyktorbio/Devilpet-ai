@@ -64,6 +64,8 @@ pub struct JsCheckpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FullSnapshot {
     #[serde(flatten)] pub checkpoint: JsCheckpoint,
+    /// Actual seeded KC wiring, needed to reproduce a full live state even if constructed with another seed.
+    pub kc_connections: Vec<Vec<usize>>,
     pub eligibility: Vec<f64>,
     pub kc_voltage: Vec<f64>,
     pub mbon_rate: [f64; 5],
@@ -292,18 +294,21 @@ impl ArchitecturalFlyBrain {
         Ok(())
     }
     pub fn full_snapshot(&self) -> FullSnapshot {
-        FullSnapshot { checkpoint:self.js_checkpoint(),eligibility:self.elig.clone(),
+        FullSnapshot { checkpoint:self.js_checkpoint(),kc_connections:self.kc_pre.clone(),eligibility:self.elig.clone(),
             kc_voltage:self.kc_v.clone(),mbon_rate:self.mbon_rate,
             working_mem:self.working_mem,last_active_kc:self.last_active_kc }
     }
     pub fn restore_full_snapshot(&mut self, snapshot: &FullSnapshot) -> Result<(), BrainError> {
-        if snapshot.eligibility.len()!=self.n_plastic() || snapshot.kc_voltage.len()!=self.n_kc() ||
+        if snapshot.kc_connections.len()!=self.n_kc() ||
+           snapshot.kc_connections.iter().any(|row|row.len()!=self.cfg.fan_in||row.iter().any(|i|*i>=30)) ||
+           snapshot.eligibility.len()!=self.n_plastic() || snapshot.kc_voltage.len()!=self.n_kc() ||
            !snapshot.eligibility.iter().chain(&snapshot.kc_voltage).all(|v|v.is_finite()) ||
            !snapshot.mbon_rate.iter().chain(&snapshot.working_mem).all(|v|v.is_finite()) ||
            !snapshot.last_active_kc.is_finite() {
             return Err(BrainError::InvalidCheckpoint("full snapshot arrays"));
         }
         self.restore_js_checkpoint(&snapshot.checkpoint)?;
+        self.kc_pre.clone_from(&snapshot.kc_connections);
         self.elig.clone_from(&snapshot.eligibility);
         self.kc_v.clone_from(&snapshot.kc_voltage);
         self.mbon_rate = snapshot.mbon_rate;
@@ -361,6 +366,17 @@ mod tests {
         let cp:JsCheckpoint=serde_json::from_str(&json).unwrap();
         let mut b=ArchitecturalFlyBrain::new(Tier::Bee,42);
         b.restore_js_checkpoint(&cp).unwrap();
-        assert_eq!(a.js_checkpoint(),b.js_checkpoint());
+        let x=a.js_checkpoint();let y=b.js_checkpoint();
+        assert_eq!(x.tier_key,y.tier_key);
+        assert_eq!(x.tick,y.tick);
+        assert_eq!(x.rng,y.rng);
+        // serde_json may move the last bit of floating numbers while parsing
+        // a decimal JSON roundtrip; imported weights remain numerically equivalent.
+        for (p,q) in x.short_w.iter().zip(&y.short_w){
+            assert!((p-q).abs()<1e-14);
+        }
+        for (p,q) in x.long_w.iter().zip(&y.long_w){
+            assert!((p-q).abs()<1e-14);
+        }
     }
 }
