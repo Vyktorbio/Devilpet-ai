@@ -46,7 +46,7 @@ try {
     console.error('BROWSER DIAGNOSTICS',JSON.stringify({diagnostics,errors,consoleErrors}));
   }
   assert.equal(diagnostics.rustBrain,true);
-  assert.equal(typeof await page.evaluate(()=>window.DevilPetRuntime.getBrain().rng.next),'function');
+  assert.equal(await page.evaluate(()=>typeof window.DevilPetRuntime.getBrain().rng.next),'function');
   await page.locator('#brain-runtime-toggle').click();
   await page.waitForFunction(()=>window.DevilPetRustStatus().mode==='javascript',{timeout:10000});
   assert.equal(await page.evaluate(()=>!!window.DevilPetRuntime.getBrain().isRust),false);
