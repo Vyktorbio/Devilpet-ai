@@ -1,0 +1,23 @@
+{
+  "format": "devilpet-connectome-ports-v1",
+  "dataset_id": "male-cns-v1.0-2026",
+  "version": "v1.0",
+  "annotation_source": "https://male-cns.janelia.org/download/",
+  "reviewed_by": "",
+  "reviewed_at": "",
+  "explanation": "DO NOT guess IDs. Fill body_id, annotation and evidence from official MaleCNS annotations for this specific version. Motor direction requires independent anatomical/physiological justification.",
+  "sensors": {
+    "odor_left": [],
+    "odor_right": [],
+    "vision_left": [],
+    "vision_right": [],
+    "mechanical_front": [],
+    "taste_food": []
+  },
+  "motors": {
+    "forward": [],
+    "turn_left": [],
+    "turn_right": [],
+    "lift": []
+  }
+}

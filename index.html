@@ -322,6 +322,12 @@
   }
 </style>
 <script src="./neural-engine.js"></script>
+<script src="./environment/world3d.js?v=separation1"></script>
+<script src="./environment/habitat3d.js?v=separation1"></script>
+<script src="./environment/world-state.js?v=separation1"></script>
+<script src="./fly/sensors.js?v=separation1"></script>
+<script src="./fly/agent.js?v=separation1"></script>
+<script src="./fly/connectome-bridge.js?v=cns1"></script>
 </head>
 <body>
 <div class="layout">
@@ -443,6 +449,23 @@
     </details>
     <div id="brain-runtime" role="status" aria-live="polite" style="margin-top:8px;font-size:12px;color:var(--muted)">Motor: JavaScript (carregando Rust…)</div>
     <a href="./connectomes/" style="display:inline-block;font-size:12px;margin-top:8px;color:#a9bdff">Laboratório dos conectomas completos (2026)</a>
+    <details id="cns-bridge-details" style="margin-top:12px">
+      <summary>Conectoma real: serviço Rust (experimental)</summary>
+      <p style="font-size:11px;color:var(--muted)">Requer o grafo CNS oficial carregado num computador ou servidor e IDs sensoriais/motores identificados. A propagação anatômica ainda não é fisiologia validada.</p>
+      <label for="cns-endpoint" style="display:block;font-size:12px;margin-bottom:5px">Serviço local ou HTTPS</label>
+      <input id="cns-endpoint" type="url" value="http://127.0.0.1:8326" style="padding:8px;max-width:330px;width:100%;border-radius:8px;border:1px solid var(--border);background:var(--panel-2);color:inherit">
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px">
+        <button id="cns-connect" type="button">Conectar grafo</button>
+        <button id="cns-activate" type="button" disabled>Ativar controle CNS</button>
+        <button id="cns-disconnect" type="button" disabled>Desconectar</button>
+      </div>
+      <p id="cns-bridge-status" role="status" aria-live="polite" style="font-size:11px;color:var(--muted);line-height:1.5">Desconectado. O cérebro reduzido continua ativo.</p>
+    </details>
+    <details id="fly-sensors-details" style="margin-top:10px">
+      <summary>Órgãos sensoriais da mosca (separados do 3D)</summary>
+      <p style="font-size:11px;color:var(--muted)">Antenas olfativas, visão, mecanorreceptores, tato, paladar, propriocepção e relógio circadiano. Leituras virtuais, não medições biológicas calibradas.</p>
+      <p id="fly-sensors-values" style="font-size:12px;line-height:1.5">Aguardando amostras sensoriais…</p>
+    </details>
 
   </div>
 </div>
@@ -550,262 +573,18 @@ function makeEyeTexture() {
 // ============================================================================
 // 4. Upgraded Three.js 3D Botanical Terrarium & Detailed Drosophila
 // ============================================================================
+// Three.js scene/camera/lights/renderer live in an independent environment module.
 const viewport = document.getElementById('viewport');
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0918);
-scene.fog = new THREE.FogExp2(0x130e20, 0.012);
+const world3D = DevilPetWorld3D.create({THREE,viewport});
+const {scene,camera,renderer,hemiLight,keyLight,rimLight} = world3D;
+let camMode = 'far', camYaw = 0.72, camPitch = 0.58, camDist = 35.5;
+const ARENA_RADIUS = 23.0;
 
-const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 180);
-let camMode = 'far'; // 'far' | 'orbit' | 'top' | 'follow'
-let camYaw = 0.72, camPitch = 0.58, camDist = 35.5;
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
-viewport.appendChild(renderer.domElement);
-
-// 3-Point Studio Lighting (transitions smoothly between Day and Night/Sleep)
-const hemiLight = new THREE.HemisphereLight(0x9c9edc, 0x1c1724, 0.87);
-scene.add(hemiLight);
-
-const keyLight = new THREE.DirectionalLight(0xb8b5ed, 1.15);
-keyLight.position.set(14, 26, 13);
-keyLight.castShadow = true;
-keyLight.shadow.mapSize.width = 1024;
-keyLight.shadow.mapSize.height = 1024;
-keyLight.shadow.camera.near = 2;
-keyLight.shadow.camera.far = 65;
-keyLight.shadow.camera.left = -19;
-keyLight.shadow.camera.right = 19;
-keyLight.shadow.camera.top = 19;
-keyLight.shadow.camera.bottom = -19;
-scene.add(keyLight);
-
-const rimLight = new THREE.PointLight(0x9c75e8, 1.2, 32);
-rimLight.position.set(-9, 7, -8);
-scene.add(rimLight);
-
-// Expanded square cemetery; the neural model is intentionally untouched.
-const ARENA_RADIUS = 23.0; // square half-width: 46 x 46 scene units
-const floorTex = makeFloorTexture();
-floorTex.repeat.set(1.5,1.5);
-const floor = new THREE.Mesh(
-  new THREE.BoxGeometry(ARENA_RADIUS * 2, 0.7, ARENA_RADIUS * 2),
-  new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.88, metalness: 0.06 })
-);
-floor.position.y = -0.35;
-floor.receiveShadow = true;
-scene.add(floor);
-const boundaryMaterial = new THREE.MeshStandardMaterial({ color: 0x3b3545, roughness: 0.88 });
-for (const sign of [-1,1]) {
-  const xWall = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.8, ARENA_RADIUS * 2), boundaryMaterial);
-  xWall.position.set(sign * ARENA_RADIUS, 0.15, 0); xWall.castShadow = true; scene.add(xWall);
-  const zWall = new THREE.Mesh(new THREE.BoxGeometry(ARENA_RADIUS * 2, 0.8, 0.44), boundaryMaterial);
-  zWall.position.set(0, 0.15, sign * ARENA_RADIUS); zWall.castShadow = true; scene.add(zWall);
-}
-// Naturalistic undergrowth: inexpensive instanced vegetation around the rim.
-const groundCover = new THREE.Group();
-scene.add(groundCover);
-const sprigMat = new THREE.MeshStandardMaterial({color:0x4b8b4a,roughness:0.95,side:THREE.DoubleSide});
-const sprigGeo = new THREE.ConeGeometry(0.16,0.75,4);
-for(let i=0;i<110;i++){
-  const a=i*2.399963229728653;
-  const radius=10.4+5.2*Math.sqrt((i+0.5)/110);
-  const x=Math.cos(a)*radius,z=Math.sin(a)*radius;
-  const sprig=new THREE.Mesh(sprigGeo,sprigMat);
-  sprig.position.set(x,0.30,z);
-  sprig.rotation.z=Math.sin(i*3.7)*0.23;
-  sprig.scale.setScalar(0.55+(i%7)*0.095);
-  groundCover.add(sprig);
-}
-const soilRing=new THREE.Mesh(new THREE.PlaneGeometry(34,34),
-  new THREE.MeshBasicMaterial({color:0x527e39,transparent:true,opacity:0.14,side:THREE.DoubleSide}));
-soilRing.rotation.x=-Math.PI/2;soilRing.position.y=0.025;scene.add(soilRing);
-
-// Three gothic chapel pinnacles replace the botanical perches.
-// Keep the same perch coordinates, heights and radii, so the neural and
-// locomotion behavior can be compared without changing the sensory model.
-const PERCHES = [
-  { id: 'leaf1', label: 'Pináculo da Capela Baixa', x: -9.8, y: 2.3, z: 5.8, radius: 1.55 },
-  { id: 'leaf2', label: 'Pináculo da Capela Média', x: 10.2, y: 3.6, z: 5.0, radius: 1.55 },
-  { id: 'leaf3', label: 'Pináculo da Capela Alta', x: -1.8, y: 5.2, z: -9.6, radius: 1.50 }
-];
-const chapelStone = new THREE.MeshStandardMaterial({color:0x55505e,roughness:.92});
-const chapelTrim = new THREE.MeshStandardMaterial({color:0x777081,roughness:.86});
-const chapelShadow = new THREE.MeshStandardMaterial({color:0x211e2b,roughness:.99});
-function addChapelPinnacle(p){
-  const g=new THREE.Group();g.position.set(p.x,0,p.z);
-  // Tower reaches the old leaf's landing height; the tip rises beside it.
-  const tower=new THREE.Mesh(new THREE.BoxGeometry(1.6,p.y-.12,1.6),chapelStone);
-  tower.position.y=(p.y-.12)/2;tower.castShadow=true;tower.receiveShadow=true;g.add(tower);
-  const footing=new THREE.Mesh(new THREE.BoxGeometry(2.0,.24,2.0),chapelTrim);
-  footing.position.y=.12;g.add(footing);
-  const landing=new THREE.Mesh(new THREE.BoxGeometry(2.12,.18,2.12),chapelTrim);
-  landing.position.y=p.y-.09;landing.receiveShadow=true;g.add(landing);
-  // Narrow gargoyle-like gothic spire at the rear, leaving an open place to land.
-  const backing=new THREE.Mesh(new THREE.BoxGeometry(.55,.9,.5),chapelStone);
-  backing.position.set(0,p.y+.37,-.68);backing.castShadow=true;g.add(backing);
-  const point=new THREE.Mesh(new THREE.ConeGeometry(.46,1.22,4),chapelTrim);
-  point.rotation.y=Math.PI/4;point.position.set(0,p.y+1.40,-.68);
-  point.castShadow=true;g.add(point);
-  for(const side of [-1,1]){
-    const finial=new THREE.Mesh(new THREE.ConeGeometry(.17,.48,4),chapelTrim);
-    finial.rotation.y=Math.PI/4;finial.position.set(side*.85,p.y+.21,-.82);g.add(finial);
-  }
-  // Arched dark opening and a carved cross on the facade.
-  const arch=new THREE.Mesh(new THREE.BoxGeometry(.36,.65,.025),chapelShadow);
-  arch.position.set(0,p.y*.58,.817);g.add(arch);
-  const archPoint=new THREE.Mesh(new THREE.ConeGeometry(.25,.27,3),chapelShadow);
-  archPoint.rotation.z=Math.PI;archPoint.position.set(0,p.y*.58+.44,.83);g.add(archPoint);
-  const upright=new THREE.Mesh(new THREE.BoxGeometry(.09,.52,.055),chapelTrim);
-  upright.position.set(0,p.y*.36,.85);g.add(upright);
-  const arm=new THREE.Mesh(new THREE.BoxGeometry(.32,.08,.055),chapelTrim);
-  arm.position.set(0,p.y*.36+.08,.85);g.add(arm);
-  scene.add(g);
-}
-PERCHES.forEach(addChapelPinnacle);
-
-// Old graveyard: decorative only, never added to collision or sensory systems.
-// Rows are outside the original central experiment and do not change the brain.
-const graveyard = new THREE.Group();
-scene.add(graveyard);
-const graveStoneMats = [
-  new THREE.MeshStandardMaterial({color:0x65636b,roughness:0.96}),
-  new THREE.MeshStandardMaterial({color:0x4d5059,roughness:0.98}),
-  new THREE.MeshStandardMaterial({color:0x77717a,roughness:0.93})
-];
-const graveBaseGeo = new THREE.BoxGeometry(1.35,0.20,0.78);
-const graveBodyGeo = new THREE.BoxGeometry(1.03,1.28,0.29);
-const graveCrownGeo = new THREE.SphereGeometry(0.52,10,6,0,Math.PI,0,Math.PI/2);
-const graveCrossStemGeo = new THREE.BoxGeometry(0.18,1.60,0.21);
-const graveCrossArmGeo = new THREE.BoxGeometry(0.76,0.17,0.21);
-const burialPositions = [];
-for (const flank of [-1,1]) {
-  for (let row=0;row<3;row++) {
-    for (let col=0;col<7;col++) {
-      const x=flank*(13.1+row*3.4);
-      const z=-18.4+col*6.0+(row%2)*0.65;
-      if (Math.abs(z)<3.5 && row===0) continue;
-      burialPositions.push([x,z]);
-    }
-  }
-}
-burialPositions.forEach(([x,z],i)=>{
-  const m=graveStoneMats[i%graveStoneMats.length];
-  const g=new THREE.Group();
-  const size=0.79+(i%5)*0.085;
-  g.position.set(x,0,z);
-  g.rotation.y=((i%7)-3)*0.045;
-  g.rotation.z=((i%9)-4)*0.018;
-  g.scale.setScalar(size);
-  const base=new THREE.Mesh(graveBaseGeo,m);
-  base.position.y=0.10;base.receiveShadow=true;g.add(base);
-  if(i%6===0){
-    const stem=new THREE.Mesh(graveCrossStemGeo,m);
-    stem.position.y=0.95;stem.castShadow=true;g.add(stem);
-    const arm=new THREE.Mesh(graveCrossArmGeo,m);
-    arm.position.y=1.28;arm.castShadow=true;g.add(arm);
-  }else{
-    const body=new THREE.Mesh(graveBodyGeo,m);
-    body.position.y=0.79;body.castShadow=true;body.receiveShadow=true;g.add(body);
-    const crown=new THREE.Mesh(graveCrownGeo,m);
-    crown.position.y=1.42;crown.scale.z=0.31;crown.castShadow=true;g.add(crown);
-    if(i%4===0) {
-      const inset=new THREE.Mesh(new THREE.BoxGeometry(0.50,0.035,0.035),
-        new THREE.MeshStandardMaterial({color:0x24232a,roughness:1}));
-      inset.position.set(0,0.95,0.165);g.add(inset);
-    }
-  }
-  graveyard.add(g);
+// Static habitat meshes, chapels and maze live in environment/habitat3d.js.
+const {PERCHES,mazeGroup,MAZE_WALLS,ZONES} = DevilPetHabitat3D.create({
+  THREE,scene,ARENA_RADIUS,makeFloorTexture
 });
-
-
-// 3D Translucent Acrylic Maze Walls (walk around corridors OR fly over y > 2.6!)
-const mazeGroup = new THREE.Group();
-scene.add(mazeGroup);
-let mazeEnabled = true;
-
-const MAZE_WALLS = [
-  // Central T-divider creating left/right choice corridors
-  { x:  0.0, z: -3.2, w: 0.45, d: 6.4, h: 2.5 },
-  // Front corridor gates flanking the Red zone
-  { x: -4.8, z:  3.2, w: 5.2,  d: 0.45, h: 2.5 },
-  { x:  4.8, z:  3.2, w: 5.2,  d: 0.45, h: 2.5 },
-  // Outer baffles around Cyan & Amber chambers
-  { x:  7.8, z: -2.2, w: 0.45, d: 5.2, h: 2.5 },
-  { x: -7.8, z: -2.2, w: 0.45, d: 5.2, h: 2.5 },
-  // North chicane bar
-  { x:  0.0, z: -8.2, w: 6.8,  d: 0.45, h: 2.5 }
-];
-
-const mazeMat = new THREE.MeshPhysicalMaterial({
-  color: 0x60a5fa, emissive: 0x1e3a8a, emissiveIntensity: 0.18,
-  transparent: true, opacity: 0.34, roughness: 0.15, metalness: 0.1
-});
-const mazeTopMat = new THREE.MeshStandardMaterial({ color: 0x93c5fd, emissive: 0x3b82f6, emissiveIntensity: 0.35, roughness: 0.3 });
-
-for (const w of MAZE_WALLS) {
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(w.w, w.h, w.d), mazeMat);
-  wall.position.set(w.x, w.h / 2, w.z);
-  wall.castShadow = true;
-  wall.receiveShadow = true;
-  mazeGroup.add(wall);
-
-  const cap = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.04, 0.08, w.d + 0.04), mazeTopMat);
-  cap.position.set(w.x, w.h + 0.04, w.z);
-  mazeGroup.add(cap);
-}
-
-// Decorative Terrarium Moss Rocks around perimeter
-const rockMat = new THREE.MeshStandardMaterial({ color: 0x2c3633, roughness: 0.92 });
-const mossMat = new THREE.MeshStandardMaterial({ color: 0x2a523c, roughness: 0.95 });
-const rockPositions = [
-  [-12.8, 0.4, 7.2, 1.4], [12.4, 0.35, 8.1, 1.2], [-11.8, 0.38, -8.8, 1.25], [12.5, 0.32, -7.8, 1.1]
-];
-for (const [rx, ry, rz, sc] of rockPositions) {
-  const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(sc, 1), rockMat);
-  rock.scale.set(1.2, 0.65, 1.0);
-  rock.position.set(rx, ry, rz);
-  rock.castShadow = true;
-  rock.receiveShadow = true;
-  scene.add(rock);
-
-  const moss = new THREE.Mesh(new THREE.SphereGeometry(sc * 0.55, 10, 8), mossMat);
-  moss.scale.set(1.3, 0.45, 1.1);
-  moss.position.set(rx + 0.2, ry + sc * 0.32, rz);
-  scene.add(moss);
-}
-
-// Floating Ambient Dust Motes
-const dustCount = 90;
-const dustGeo = new THREE.BufferGeometry();
-const dustCoords = new Float32Array(dustCount * 3);
-for (let i = 0; i < dustCount; i++) {
-  const a = Math.random() * Math.PI * 2;
-  const r = Math.random() * 9.8;
-  dustCoords[i * 3] = Math.cos(a) * r;
-  dustCoords[i * 3 + 1] = 0.6 + Math.random() * 4.5;
-  dustCoords[i * 3 + 2] = Math.sin(a) * r;
-}
-dustGeo.setAttribute('position', new THREE.BufferAttribute(dustCoords, 3));
-const dustPoints = new THREE.Points(
-  dustGeo,
-  new THREE.PointsMaterial({ color: 0xcbe4ff, size: 0.08, transparent: true, opacity: 0.35 })
-);
-scene.add(dustPoints);
-
-// Habitat sensory adapter: physical food patches and the existing high chapel.
-// The neural engine remains unchanged: its five input slots are mapped to world cues.
-// No colored training rings or hidden targets are rendered.
-const ZONES = [
-  {id:'cyan',label:'Carne da entrada',x:-7.2,y:0,z:-4.7,radius:1.55,aerial:false,cueIdx:0},
-  {id:'amber',label:'Carne da ala oeste',x:7.4,y:0,z:-5.8,radius:1.55,aerial:false,cueIdx:1},
-  {id:'red',label:'Carne da ala leste',x:5.6,y:0,z:8.2,radius:1.55,aerial:false,cueIdx:2},
-  {id:'sky',label:'Mausoléu alto',x:-1.8,y:5.2,z:-9.6,radius:1.50,aerial:true,cueIdx:4}
-];
+let mazeEnabled=true;
 
 // Interactive Nectar Drop (Pet Food) & Pushable Play Ball (Harvard 2026 study!)
 const nectarGroup = new THREE.Group();
@@ -1095,6 +874,7 @@ function detectPerch() {
 }
 
 function computePersonality(tel) {
+  if (cnsBridge.active) return 'CNS experimental — sem perfil comportamental validado';
   if (sleeping) return 'Dormindo (LTM)';
   if (pet.energy < 0.28) return 'Faminta';
   if (pet.rest < 0.25) return 'Exausta';
@@ -1107,6 +887,10 @@ function computePersonality(tel) {
 }
 
 function triggerReinforcement(val) {
+  if (cnsBridge.active) {
+    statusLine.textContent='PAM/PPL1 ainda não implementado no conectoma completo; nenhum reforço foi aplicado.';
+    return;
+  }
   if (sleeping) {
     statusLine.textContent = 'Seu pet está dormindo para consolidar memória longa. Acorde-a primeiro.';
     return;
@@ -1174,21 +958,8 @@ function triggerReinforcement(val) {
   let habitatCooldown=0;
   // Environmental field: coordinates are only used by the world to generate sensory input.
   // The agent receives local odor intensity and left/right antenna differences.
-  function odorAt(x,z,i) {
-    const f=HABITAT_FRUITS[i];
-    const d2=(x-f.x)**2+(z-f.z)**2;
-    return f.odor*f.food/(1+0.085*d2);
-  }
-  function localOlfaction(pos) {
-    const a=pos.angle,offset=0.7;
-    const left={x:pos.x-Math.sin(a)*offset,z:pos.z+Math.cos(a)*offset};
-    const right={x:pos.x+Math.sin(a)*offset,z:pos.z-Math.cos(a)*offset};
-    return HABITAT_FRUITS.map((f,i)=>({
-      food:Math.max(0,odorAt(pos.x,pos.z,i)),
-      left:odorAt(left.x,left.z,i),
-      right:odorAt(right.x,right.z,i)
-    }));
-  }
+  // Olfactory gradients were moved to fly/sensors.js; the environment only
+  // defines physical food sources and food consumption/contact below.
   function habitatStep(decision,sensory) {
     if(sleeping)return {dx:0,dz:0,dy:0,feeding:false};
     HABITAT_FRUITS.forEach((f,i)=>{
@@ -1222,6 +993,60 @@ function triggerReinforcement(val) {
 
 
 let neuroEthology=new FlyNeuroEthology();
+// The fly is independent of the 3-D renderer. Neural ports always refer to
+// the current engine, including Rust/JS switches and checkpoint restoration.
+const flyAgent = new DevilPetFly.FlyAgent({
+  getBrain:()=>brain,getOdor:()=>neuroEthology,sensors:DevilPetSensors
+});
+const cnsBridge = new DevilPetConnectomeBridge.ConnectomeBridge();
+const cnsConnect=document.getElementById('cns-connect');
+const cnsActivate=document.getElementById('cns-activate');
+const cnsDisconnect=document.getElementById('cns-disconnect');
+const cnsBridgeStatus=document.getElementById('cns-bridge-status');
+const cnsEndpoint=document.getElementById('cns-endpoint');
+function updateCnsUI(){
+  const state=cnsBridge.status();
+  cnsConnect.disabled=state.connected;
+  cnsDisconnect.disabled=!state.connected;
+  cnsActivate.disabled=!state.connected || (!state.active && state.lastActivity<=0);
+  cnsActivate.textContent=state.active?'Usar cérebro reduzido':'Ativar controle CNS';
+  cnsBridgeStatus.textContent=state.connected
+    ? (state.active?'Controle CNS experimental ativo. ':'Grafo observado, sem controlar voo. ')+
+      state.dataset_id+' · '+state.node_count.toLocaleString('pt-BR')+
+      ' nós · '+state.edge_count.toLocaleString('pt-BR')+' arestas'+
+      (state.error?' · '+state.error:'')
+    : state.error||'Desconectado. O cérebro reduzido continua ativo.';
+}
+cnsConnect.addEventListener('click',async()=>{
+  cnsBridgeStatus.textContent='Verificando grafo real e mapeamento dos neurônios…';
+  try{await cnsBridge.connect(cnsEndpoint.value.trim());}
+  catch(e){cnsBridge.disconnect();cnsBridge.error=e.message||String(e);}
+  updateCnsUI();
+});
+cnsActivate.addEventListener('click',()=>{
+  try{if(cnsBridge.active)cnsBridge.deactivate();else cnsBridge.activate();}
+  catch(e){cnsBridge.error=e.message||String(e);}
+  updateCnsUI();
+});
+cnsDisconnect.addEventListener('click',()=>{cnsBridge.disconnect();updateCnsUI();});
+setInterval(updateCnsUI,1250);
+
+let lastSensorPanelUpdate = 0;
+function updateSensorPanel(frame){
+  if(performance.now()-lastSensorPanelUpdate<800)return;
+  lastSensorPanelUpdate=performance.now();
+  const el=document.getElementById('fly-sensors-values');
+  if(!el)return;
+  const odors=frame.odors.reduce((s,v)=>s+v.food,0);
+  const v=frame.vision,m=frame.mechanosense,p=frame.proprioception;
+  el.textContent='Antenas: '+odors.toFixed(3)+
+    ' · Visão: '+v.contrast.toFixed(2)+
+    ' · Obstáculo frontal: '+m.front.toFixed(2)+
+    ' · Contato: '+(m.contact?'sim':'não')+
+    ' · Altitude: '+Math.round(p.altitude*100)+'%'+
+    ' · Alimento: '+(frame.taste.food?'sim':'não')+
+    ' · Relógio local: '+(frame.clock.localPhase===null?'indisponível':Math.round(frame.clock.localPhase*24)+'h');
+}
 function runNeuroExperiments() {
   // Paired training, extinction, reversal and retention; deterministic simulated tests.
   const report=[];
@@ -1306,20 +1131,31 @@ function stepSimulation() {
   // Central-complex-inspired heading integrator: noisy path integration.
   neuroEthology.heading=0.97*neuroEthology.heading+0.03*flyPos.angle;
 
-  // 3D Sensory cues (3 floor zones + 1 aerial sky ring + play ball)
-  const cues = { cyan: 0, amber: 0, red: 0, ball: 0, sky: 0 };
-  for (const z of ZONES) {
-    const d3 = Math.hypot(flyPos.x - z.x, flyPos.y - z.y, flyPos.z - z.z);
-    cues[z.id] = Math.max(0, 1.0 - d3 / 11.5);
-  }
-  const distBall = Math.hypot(flyPos.x - ballState.x, flyPos.y, flyPos.z - ballState.z);
-  cues.ball = Math.max(0, 1.0 - distBall / 9.0);
-
+  // World -> separate sensory organs -> independent fly -> brain.
+  // No food coordinates, 3-D geometry or renderer objects reach the neural port.
+  const nowDate = new Date();
+  const worldView = DevilPetWorldState.snapshot({
+    radius:ARENA_RADIUS,zones:ZONES,fruits:HABITAT_FRUITS,
+    perches:PERCHES,ball:ballState,blood:nectarState,
+    walls:mazeEnabled?MAZE_WALLS:[],pillars:mazeEnabled?customPillars:[],
+    ambientLight:keyLight.intensity/1.65
+  });
+  const sensorFrame = flyAgent.perceive(worldView,flyPos,pet,{
+    sleeping,localHour:nowDate.getHours(),localMinute:nowDate.getMinutes()
+  });
+  updateSensorPanel(sensorFrame);
+  void cnsBridge.tick(sensorFrame);
+  const cnsMotor = sleeping ? null : cnsBridge.motor();
   const modToApply = sleeping ? 0 : pendingMod;
   pendingMod = 0;
   const cons = sleeping ? 0.85 : 0.02;
-
-  const out = brain.stepWindow(cues, modToApply, cons, !sleeping, 15.0);
+  // The reduced network stays frozen when an actual CNS graph controls the fly.
+  const {out,decision:neuroDecision}=cnsMotor
+    ? {out:{dnSpikes:0},decision:{activity:'explorar',target:-1,odorValue:0}}
+    : flyAgent.react(sensorFrame,pet,{
+        modulation:modToApply,consolidate:cons,sleeping,durationMs:15
+      });
+  const odorSignals = sensorFrame.odors;
 
   // 3D Emergent steering (X, Y altitude, Z)
   let desiredX = 0, desiredY = 0, desiredZ = 0;
@@ -1327,7 +1163,7 @@ function stepSimulation() {
 
   let settledZone = null;
   let arrivalDamping = 1.0;
-  for (let i = 0; i < ZONES.length; i++) {
+  for (let i = 0; !cnsMotor && i < ZONES.length; i++) {
     const z = ZONES[i];
     const dx = z.x - flyPos.x;
     const dy = z.y - flyPos.y;
@@ -1352,8 +1188,6 @@ function stepSimulation() {
   }
 
   // Natural odor-guided foraging, competing with trained zone preferences.
-  const odorSignals=localOlfaction(flyPos);
-  const neuroDecision=neuroEthology.choose(odorSignals,pet);
   const foraging = habitatStep(neuroDecision,odorSignals);
   if(neuroDecision.activity!=='alimentar') {
     foraging.dx=0;foraging.dz=0;foraging.dy=0;
@@ -1375,14 +1209,14 @@ function stepSimulation() {
     const dp = Math.hypot(flyPos.x - p.x, flyPos.y - p.y, flyPos.z - p.z);
     if (dp < nearestPerchD) { nearestPerchD = dp; nearestPerch = p; }
   }
-  if (!sleeping && pet.rest < 0.45 && nearestPerch && !nectarState.active) {
+  if (!cnsMotor && !sleeping && pet.rest < 0.45 && nearestPerch && !nectarState.active) {
     desiredX += ((nearestPerch.x - flyPos.x) / Math.max(0.5, nearestPerchD)) * 0.75;
     desiredY += ((nearestPerch.y + 0.12 - flyPos.y) / Math.max(0.5, nearestPerchD)) * 0.85;
     desiredZ += ((nearestPerch.z - flyPos.z) / Math.max(0.5, nearestPerchD)) * 0.75;
   }
 
   let feedingNow = false;
-  if (nectarState.active && !sleeping) {
+  if (!cnsMotor && nectarState.active && !sleeping) {
     const dx = nectarState.x - flyPos.x;
     const dz = nectarState.z - flyPos.z;
     const dN = Math.hypot(dx, dz);
@@ -1403,7 +1237,7 @@ function stepSimulation() {
         statusLine.textContent = 'Seu pet terminou a gota de sangue!';
       }
     }
-  } else if (!sleeping && callTarget.active) {
+  } else if (!cnsMotor && !sleeping && callTarget.active) {
     const dx = callTarget.x - flyPos.x;
     const dz = callTarget.z - flyPos.z;
     const dC = Math.hypot(dx, dz);
@@ -1418,7 +1252,7 @@ function stepSimulation() {
       callTarget.active = false;
       callRing.material.opacity = 0;
     }
-  } else if (!sleeping && pet.curiosity > 0.45 && distBall < 7.5) {
+  } else if (!cnsMotor && !sleeping && pet.curiosity > 0.45 && distBall < 7.5) {
     const dx = ballState.x - flyPos.x;
     const dz = ballState.z - flyPos.z;
     const playPull = pet.curiosity * (1.0 + Math.max(0, brain.mbonRate[3]));
@@ -1432,6 +1266,16 @@ function stepSimulation() {
     }
   }
 
+  if(cnsMotor){
+    // The connection graph outputs only motor channels; no world coordinates
+    // or preprogrammed targets are passed through the neural interface.
+    desiredX=Math.cos(flyPos.angle)*cnsMotor.forward-
+      Math.sin(flyPos.angle)*cnsMotor.turn*.8;
+    desiredZ=Math.sin(flyPos.angle)*cnsMotor.forward+
+      Math.cos(flyPos.angle)*cnsMotor.turn*.8;
+    desiredY=(cnsMotor.lift-.25)*1.2;
+    actionLabel='CNS anatômico (propagação experimental)';
+  }
   function resolveMazeCollision(obj, rad, bounceVel = false) {
     if (!mazeEnabled) return false;
     let hit = false;
@@ -1493,8 +1337,8 @@ function stepSimulation() {
   ballMesh.rotation.z -= ballState.vx * 1.3;
 
   // Move fly in full 3D (walking, flying, hovering, or perching on leaves)
-  const perchedOn = (!feedingNow && !sleeping && flightBoostTimer <= 0) ? detectPerch() : null;
-  const investigatingZone = (!feedingNow && !sleeping && settledZone !== null);
+  const perchedOn = (!cnsMotor && !feedingNow && !sleeping && flightBoostTimer <= 0) ? detectPerch() : null;
+  const investigatingZone = (!cnsMotor && !feedingNow && !sleeping && settledZone !== null);
   const isAirborne = flyPos.y > 0.28 && !perchedOn;
 
   if (investigatingZone) {
@@ -1510,8 +1354,8 @@ function stepSimulation() {
   if (!sleeping) {
     const pullMag = Math.hypot(desiredX, desiredZ);
     const noiseScale = investigatingZone ? 0.05 : 0.19;
-    let steer = (brain.rng.next() - 0.5) * noiseScale;
-    if (pullMag > 0.06) {
+    let steer = cnsMotor ? cnsMotor.turn*.18 : (brain.rng.next()-.5)*noiseScale;
+    if (!cnsMotor && pullMag > 0.06) {
       const targetAngle = Math.atan2(desiredZ, desiredX);
       const diff = Math.atan2(Math.sin(targetAngle - flyPos.angle), Math.cos(targetAngle - flyPos.angle));
       const maxTurn = investigatingZone ? 0.06 : 0.18;
@@ -1520,7 +1364,9 @@ function stepSimulation() {
     flyPos.angle = (flyPos.angle + steer) % (Math.PI * 2);
 
     const restingOnLeaf = (perchedOn !== null && pet.rest < 0.72 && Math.abs(desiredY) < 0.35);
-    const baseSpeed = (0.08 + Math.min(0.085, out.dnSpikes * 0.002)) * (0.45 + 0.55 * pet.rest);
+    const baseSpeed = cnsMotor
+      ? cnsMotor.forward*.16*(.45+.55*pet.rest)
+      : (0.08 + Math.min(0.085, out.dnSpikes * 0.002)) * (0.45 + 0.55 * pet.rest);
     const speed = feedingNow ? 0.015 : (restingOnLeaf ? 0.004 : (investigatingZone ? 0.009 : baseSpeed * arrivalDamping));
     flyPos.x += Math.cos(flyPos.angle) * speed;
     flyPos.z += Math.sin(flyPos.angle) * speed;
@@ -1534,6 +1380,8 @@ function stepSimulation() {
       pet.rest = Math.min(1.0, pet.rest + 0.0012);
     } else if (investigatingZone) {
       targetY = settledZone.aerial ? settledZone.y + Math.sin(clockSec * 5.0) * 0.15 : 0.0;
+    } else if (cnsMotor) {
+      targetY = Math.max(0,Math.min(5.2,flyPos.y+desiredY*.13));
     } else if (flightBoostTimer > 0) {
       targetY = 3.5 + Math.sin(clockSec * 2.4) * 0.5;
     } else {
@@ -1548,7 +1396,7 @@ function stepSimulation() {
     if (flyPos.y < 2.65) {
       const hitWall = resolveMazeCollision(flyPos, 0.55, false);
       if (hitWall) {
-        flyPos.angle = (flyPos.angle + (brain.rng.next() > 0.5 ? 0.65 : -0.65)) % (Math.PI * 2);
+        flyPos.angle = (flyPos.angle + (cnsMotor?(cnsMotor.turn>=0?.65:-.65):(brain.rng.next()>.5?.65:-.65))) % (Math.PI*2);
       }
     }
 
@@ -1556,7 +1404,7 @@ function stepSimulation() {
     if (Math.abs(flyPos.x) > maxFlyR || Math.abs(flyPos.z) > maxFlyR) {
       flyPos.x = Math.max(-maxFlyR, Math.min(maxFlyR, flyPos.x));
       flyPos.z = Math.max(-maxFlyR, Math.min(maxFlyR, flyPos.z));
-      flyPos.angle = Math.atan2(-flyPos.z, -flyPos.x) + (brain.rng.next() - 0.5) * 0.5;
+      flyPos.angle = Math.atan2(-flyPos.z,-flyPos.x)+(cnsMotor?0:(brain.rng.next()-.5)*.5);
     }
 
     const flyingNow = (flyPos.y > 0.25 && !restingOnLeaf);
@@ -1634,31 +1482,11 @@ function stepSimulation() {
 
 }
 
-function updateCamera() {
-  if (camMode === 'orbit' || camMode === 'far') {
-    const cx = Math.cos(camYaw) * Math.cos(camPitch) * camDist;
-    const cy = Math.sin(camPitch) * camDist;
-    const cz = Math.sin(camYaw) * Math.cos(camPitch) * camDist;
-    camera.position.lerp(new THREE.Vector3(cx, cy, cz), 0.14);
-    camera.lookAt(0, 0.35, 0);
-  } else if (camMode === 'top') {
-    camera.position.lerp(new THREE.Vector3(0, Math.max(22, camDist), 0.1), 0.12);
-    camera.lookAt(0, 0, 0);
-  } else {
-    const tx = flyPos.x - Math.cos(flyPos.angle) * 5.4;
-    const tz = flyPos.z - Math.sin(flyPos.angle) * 5.4;
-    camera.position.lerp(new THREE.Vector3(tx, flyPos.y + 2.8, tz), 0.1);
-    camera.lookAt(flyPos.x, flyPos.y + 0.5, flyPos.z);
-  }
-}
-
-function resize() {
-  const w = viewport.clientWidth;
-  const h = viewport.clientHeight;
-  camera.aspect = w / Math.max(1, h);
-  camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
-}
+// Camera motion and resizing belong to the Three.js environment, not the fly.
+const updateCamera = () => world3D.updateCamera({
+  mode:camMode,yaw:camYaw,pitch:camPitch,distance:camDist,fly:flyPos
+});
+const resize = () => world3D.resize();
 
 // Orbit + Zoom + 3D Raycaster Click-to-Place
 let placeMode = 'nectar';
@@ -1902,7 +1730,8 @@ document.getElementById('btn-save').addEventListener('click', () => {
       rustState: brain.isRust ? brain.fullSnapshot() : undefined
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
-    statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`;
+    statusLine.textContent = `Pet "${payload.petName}" salvo (${brain.cfg.name}, t = ${(brain.tick * brain.dt).toFixed(0)} ms).`+
+      (cnsBridge.active?' O CNS externo não foi incluído nesse checkpoint.':'');
   } catch (e) {
     statusLine.textContent = 'Armazenamento local indisponível.';
   }
@@ -1974,7 +1803,7 @@ function animate() {
     }
   }
   updateCamera();
-  renderer.render(scene, camera);
+  world3D.render();
   if (performance.now() - previousAutoSave > 30000) {
     previousAutoSave = performance.now();
     autoSavePet();
