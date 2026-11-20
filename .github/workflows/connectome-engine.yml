@@ -49,3 +49,48 @@ jobs:
             --bin connectome-cli -- neighbors "$tmp/graph" 101 10
           cargo run --quiet --manifest-path rust/connectome_engine/Cargo.toml \
             --bin connectome-cli -- pulse "$tmp/graph" 101 3
+          cat > "$tmp/ports.json" <<'JSON'
+          {
+            "format":"devilpet-connectome-ports-v1",
+            "dataset_id":"synthetic-fixture","version":"1",
+            "annotation_source":"synthetic://ci",
+            "reviewed_by":"ci-fixture-only","reviewed_at":"2026-11-20",
+            "sensors":{"odor_left":[{"body_id":101,"annotation":"synthetic sensor","evidence":"CI synthetic fixture"}]},
+            "motors":{
+              "forward":[{"body_id":202,"annotation":"synthetic motor","evidence":"CI synthetic fixture"}],
+              "turn_left":[{"body_id":202,"annotation":"synthetic motor","evidence":"CI synthetic fixture"}],
+              "turn_right":[{"body_id":303,"annotation":"synthetic motor","evidence":"CI synthetic fixture"}],
+              "lift":[{"body_id":303,"annotation":"synthetic motor","evidence":"CI synthetic fixture"}]
+            }
+          }
+          JSON
+          cargo run --quiet --manifest-path rust/connectome_engine/Cargo.toml \
+            --bin connectome-serve -- --graph "$tmp/graph" \
+            --ports "$tmp/ports.json" --bind 127.0.0.1:8327 > "$tmp/server.log" 2>&1 &
+          service_pid=$!
+          trap 'kill "$service_pid" 2>/dev/null || true' EXIT
+          for try in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsS http://127.0.0.1:8327/health > "$tmp/health.json" && break
+            sleep 2
+          done
+          python - "$tmp" <<'PY'
+          import json,sys,urllib.request
+          from pathlib import Path
+          p=Path(sys.argv[1])
+          h=json.loads((p/"health.json").read_text())
+          assert h["schema"]=="devilpet-cns-server-v1"
+          assert h["dataset_id"]=="synthetic-fixture"
+          assert h["node_count"]==3 and h["edge_count"]==3
+          body=json.dumps({"sample_id":7,"hops":2,"channels":{"odor_left":0.9}}).encode()
+          req=urllib.request.Request("http://127.0.0.1:8327/step",data=body,
+            headers={"Content-Type":"application/json","Origin":"https://vyktorbio.github.io"},
+            method="POST")
+          with urllib.request.urlopen(req,timeout=3) as r:
+            out=json.load(r)
+            assert r.headers["Access-Control-Allow-Origin"]=="https://vyktorbio.github.io"
+          assert out["schema"]=="devilpet-cns-output-v1"
+          assert out["sample_id"]==7
+          assert 0<=out["motor"]["forward"]<=1
+          print("PASS: reviewed-port CNS service, CORS, real CSR processing, bounded motor protocol")
+          PY
+
