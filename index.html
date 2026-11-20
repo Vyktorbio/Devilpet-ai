@@ -328,7 +328,7 @@
     <div class="topbar">
       <div class="btn-group">
         <button type="button" id="btn-play" class="active">Pausar</button>
-        <button type="button" id="btn-feed" class="btn-pet">Dar Néctar</button>
+        <button type="button" id="btn-feed" class="btn-pet">Dar Sangue</button>
         <button type="button" id="btn-ball" class="btn-pet">Jogar Bolinha</button>
         <button type="button" id="btn-takeoff" class="btn-pet">Decolar (Voo 3D)</button>
         <button type="button" id="btn-maze" class="active">Labirinto: Ligado</button>
@@ -346,7 +346,7 @@
     <div class="topbar" style="padding-top: 0; padding-bottom: 2px;">
       <div class="btn-group">
         <span style="font-size: 11.5px; color: var(--muted); padding: 0 6px;">Clique no 3D:</span>
-        <button type="button" class="place-btn active" data-place="nectar">Néctar</button>
+        <button type="button" class="place-btn active" data-place="nectar">Sangue</button>
         <button type="button" class="place-btn" data-place="ball">Bolinha</button>
         <button type="button" class="place-btn" data-place="pillar">Obstáculo</button>
         <button type="button" class="place-btn" data-place="call">Chamar Pet</button>
@@ -386,7 +386,7 @@
     </div>
 
     <div class="status-log" id="status-line">
-      Dê um nome ao seu pet, alimente com néctar, jogue a bolinha ou use +1 / -1 para moldar a personalidade dela.
+      Dê um nome ao seu pet, alimente com sangue, jogue a bolinha ou use +1 / -1 para moldar a personalidade dela.
     </div>
   </div>
 
@@ -780,8 +780,8 @@ class ArchitecturalFlyBrain {
 // ============================================================================
 const viewport = document.getElementById('viewport');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x14201c);
-scene.fog = new THREE.FogExp2(0x14201c, 0.006);
+scene.background = new THREE.Color(0x0b0918);
+scene.fog = new THREE.FogExp2(0x130e20, 0.012);
 
 const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 180);
 let camMode = 'far'; // 'far' | 'orbit' | 'top' | 'follow'
@@ -796,10 +796,10 @@ renderer.toneMappingExposure = 1.15;
 viewport.appendChild(renderer.domElement);
 
 // 3-Point Studio Lighting (transitions smoothly between Day and Night/Sleep)
-const hemiLight = new THREE.HemisphereLight(0xe1f6ff, 0x32472d, 1.15);
+const hemiLight = new THREE.HemisphereLight(0x9c9edc, 0x1c1724, 0.87);
 scene.add(hemiLight);
 
-const keyLight = new THREE.DirectionalLight(0xffe7b0, 1.65);
+const keyLight = new THREE.DirectionalLight(0xb8b5ed, 1.15);
 keyLight.position.set(14, 26, 13);
 keyLight.castShadow = true;
 keyLight.shadow.mapSize.width = 1024;
@@ -812,7 +812,7 @@ keyLight.shadow.camera.top = 19;
 keyLight.shadow.camera.bottom = -19;
 scene.add(keyLight);
 
-const rimLight = new THREE.PointLight(0x4f9cff, 0.75, 32);
+const rimLight = new THREE.PointLight(0x9c75e8, 1.2, 32);
 rimLight.position.set(-9, 7, -8);
 scene.add(rimLight);
 
@@ -1029,7 +1029,7 @@ const nectarGroup = new THREE.Group();
 const nectarMesh = new THREE.Mesh(
   new THREE.SphereGeometry(0.48, 24, 18),
   new THREE.MeshPhysicalMaterial({
-    color: 0x4ade80, emissive: 0x166534, emissiveIntensity: 0.42,
+    color: 0x990d2b, emissive: 0x4c0014, emissiveIntensity: 0.32,
     roughness: 0.08, metalness: 0.05, transparent: true, opacity: 0.90
   })
 );
@@ -1041,6 +1041,36 @@ nectarGroup.visible = false;
 scene.add(nectarGroup);
 
 let nectarState = { active: false, x: 0, z: 0, amount: 0 };
+
+
+// Moonlit cemetery props, decorative only: no changes to neural controller.
+const cemeteryDecor=new THREE.Group();scene.add(cemeteryDecor);
+const stoneMat=new THREE.MeshStandardMaterial({color:0x686675,roughness:.94});
+const stoneDark=new THREE.MeshStandardMaterial({color:0x34313f,roughness:.96});
+const cryptMat=new THREE.MeshStandardMaterial({color:0x45404f,roughness:.97});
+function grave(x,z,size=1){
+ const g=new THREE.Group();g.position.set(x,0,z);g.rotation.y=(x+z)*.11;
+ const base=new THREE.Mesh(new THREE.BoxGeometry(1.28*size,.22*size,.52*size),stoneDark);
+ base.position.y=.13*size;g.add(base);
+ const slab=new THREE.Mesh(new THREE.BoxGeometry(.93*size,1.45*size,.28*size),stoneMat);
+ slab.position.y=.91*size;slab.rotation.z=.07;slab.castShadow=true;g.add(slab);
+ const cap=new THREE.Mesh(new THREE.SphereGeometry(.47*size,12,7,0,Math.PI*2,0,Math.PI/2),stoneMat);
+ cap.position.y=1.61*size;cap.scale.z=.31;cap.castShadow=true;g.add(cap);
+ cemeteryDecor.add(g);
+}
+[[-12,-8,1],[-10,-10,.8],[11,-10,.9],[13,-6,1.1],[-12,6,.9],[12,8,1],[-10,11,.75],[9,12,.9]].forEach(v=>grave(...v));
+function cross(x,z,size=1){
+ const g=new THREE.Group();g.position.set(x,0,z);
+ const upright=new THREE.Mesh(new THREE.BoxGeometry(.20*size,2.15*size,.28*size),cryptMat);
+ upright.position.y=1.18*size;g.add(upright);
+ const arm=new THREE.Mesh(new THREE.BoxGeometry(1.07*size,.22*size,.28*size),cryptMat);
+ arm.position.y=1.60*size;g.add(arm);cemeteryDecor.add(g);
+}
+cross(-13,0,.8);cross(13,1,.9);
+const moon=new THREE.Mesh(new THREE.SphereGeometry(2.3,28,20),
+ new THREE.MeshBasicMaterial({color:0xd3d2f5,fog:false}));
+moon.position.set(-28,25,-42);scene.add(moon);
+const moonGlow=new THREE.PointLight(0x858ccf,.35,70);moonGlow.position.copy(moon.position);scene.add(moonGlow);
 
 // User-placed 3D Obstacles & Click-to-Call target
 const customGroup = new THREE.Group();
@@ -1250,7 +1280,7 @@ const MISSIONS = [
   },
   {
     title: 'Modo Pet Livre: Voo, Poleiros & Brincadeira',
-    desc: 'Desafios completos! Alimente com néctar, jogue a bolinha, deixe-a pousar nas folhas elevadas e molde o pet do seu jeito.',
+    desc: 'Desafios completos! Alimente com sangue, jogue a bolinha, deixe-a pousar nas folhas elevadas e molde o pet do seu jeito.',
     target: 'sky', avoid: 'red', goal: 10
   }
 ];
@@ -1346,10 +1376,10 @@ function triggerReinforcement(val) {
   // Naturalistic habitat: fruit patches, odor gradients and learned site values.
   // Values represent simulated spatial preferences, not conscious intentions.
   const HABITAT_FRUITS = [
-    { x:-7.2, z:-4.7, kind:'banana', color:0xf2c94c, odor:1.0, food:1, value:0 },
-    { x: 7.4, z:-5.8, kind:'maca', color:0xd94b42, odor:0.65, food:1, value:0 },
-    { x: 5.6, z: 8.2, kind:'fruta madura', color:0xe7a04b, odor:0.9, food:1, value:0 },
-    { x:-6.4, z: 8.4, kind:'fruta fermentada', color:0x9870b1, odor:1.3, food:1, value:0 }
+    { x:-7.2, z:-4.7, kind:'carne em decomposição', color:0x79414c, odor:1.0, food:1, value:0 },
+    { x: 7.4, z:-5.8, kind:'carne em decomposição', color:0x73313e, odor:0.65, food:1, value:0 },
+    { x: 5.6, z: 8.2, kind:'carne em decomposição', color:0x88565c, odor:0.9, food:1, value:0 },
+    { x:-6.4, z: 8.4, kind:'carne em decomposição', color:0x51313b, odor:1.3, food:1, value:0 }
   ];
   const habitatGroup = new THREE.Group();
   scene.add(habitatGroup);
@@ -1362,46 +1392,17 @@ function triggerReinforcement(val) {
     const stemMat = new THREE.MeshStandardMaterial({color:0x4b3723,roughness:0.95});
     const leafMatFruit = new THREE.MeshStandardMaterial({color:0x4f963d,side:THREE.DoubleSide,roughness:0.78});
     const fruitBody = new THREE.Group();
-    if (i === 0) {
-      // Curved banana built from tapered segments.
-      const pts = [];
-      for(let j=0;j<=12;j++) {
-        const t=j/12;
-        pts.push(new THREE.Vector3((t-0.5)*2.7,0.55+0.65*Math.sin(Math.PI*t),0.30*Math.sin(Math.PI*t)));
-      }
-      const curve=new THREE.CatmullRomCurve3(pts);
-      const banana=new THREE.Mesh(new THREE.TubeGeometry(curve,32,0.30,12,false),skin);
-      banana.castShadow=true;fruitBody.add(banana);
-      for(const t of [0,1]){
-        const tip=new THREE.Mesh(new THREE.SphereGeometry(0.13,10,8),stemMat);
-        tip.position.copy(curve.getPoint(t));fruitBody.add(tip);
-      }
-    } else if (i === 1) {
-      const apple=new THREE.Mesh(new THREE.SphereGeometry(0.96,24,18),skin);
-      apple.scale.set(1,0.83,1);apple.position.y=0.93;apple.castShadow=true;fruitBody.add(apple);
-      const stalk=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.08,0.42,8),stemMat);
-      stalk.position.y=1.88;stalk.rotation.z=0.25;fruitBody.add(stalk);
-      const leaf=new THREE.Mesh(new THREE.SphereGeometry(0.37,12,8),leafMatFruit);
-      leaf.scale.set(1,0.12,0.42);leaf.position.set(0.33,1.88,0);leaf.rotation.z=0.3;fruitBody.add(leaf);
-    } else if (i === 2) {
-      // Orange fruit and fallen slice.
-      const orange=new THREE.Mesh(new THREE.SphereGeometry(0.92,22,16),skin);
-      orange.position.y=0.94;orange.castShadow=true;fruitBody.add(orange);
-      const slice=new THREE.Mesh(new THREE.CylinderGeometry(0.68,0.68,0.14,28),
-        new THREE.MeshStandardMaterial({color:0xffd57c,roughness:0.82}));
-      slice.rotation.z=0.45;slice.position.set(1.0,0.29,0.55);fruitBody.add(slice);
-      const center=new THREE.Mesh(new THREE.CylinderGeometry(0.43,0.43,0.15,24),
-        new THREE.MeshStandardMaterial({color:0xffa52d,roughness:0.88}));
-      center.rotation.copy(slice.rotation);center.position.copy(slice.position);fruitBody.add(center);
-    } else {
-      // A cluster of overripe berries with darker fermentation spots.
-      for(let j=0;j<6;j++){
-        const angle=j*Math.PI*2/6;
-        const berry=new THREE.Mesh(new THREE.SphereGeometry(0.49,14,12),
-          new THREE.MeshStandardMaterial({color:j%2?0x79466d:0x9d578b,roughness:0.83}));
-        berry.position.set(Math.cos(angle)*0.55,0.52+(j%3)*0.22,Math.sin(angle)*0.52);
-        berry.castShadow=true;fruitBody.add(berry);
-      }
+    // Stylized decaying meat; sensory model preserves original food values.
+    const meat=new THREE.Mesh(new THREE.DodecahedronGeometry(.85,1),skin);
+    meat.scale.set(1.25,.62,1);meat.position.y=.62;meat.rotation.set(.13,i*.67,.18);
+    meat.castShadow=true;fruitBody.add(meat);
+    const exposed=new THREE.Mesh(new THREE.DodecahedronGeometry(.37,0),
+      new THREE.MeshStandardMaterial({color:0xb8797e,roughness:.92}));
+    exposed.scale.set(1.5,.2,.9);exposed.position.set(.30,.94,.12);fruitBody.add(exposed);
+    for(let j=0;j<4;j++){
+      const stain=new THREE.Mesh(new THREE.SphereGeometry(.14+j*.018,8,6),
+        new THREE.MeshStandardMaterial({color:0x332e2c,roughness:1}));
+      stain.scale.y=.28;stain.position.set(-.44+j*.26,.96,(j%2?-.21:.18));fruitBody.add(stain);
     }
     group.add(fruitBody);
     const patch=new THREE.Mesh(new THREE.CircleGeometry(2.15,40),
@@ -1728,7 +1729,7 @@ function stepSimulation() {
       if (nectarState.amount <= 0.05) {
         nectarState.active = false;
         nectarGroup.visible = false;
-        statusLine.textContent = 'Seu pet terminou a gota de néctar!';
+        statusLine.textContent = 'Seu pet terminou a gota de sangue!';
       }
     }
   } else if (!sleeping && callTarget.active) {
@@ -2039,7 +2040,7 @@ function handleViewportClick(clientX, clientY) {
     nectarMesh.scale.set(1.25, 0.55, 1.25);
     nectarGroup.visible = true;
     playTone(540, 0.12, 'sine', 0.07);
-    statusLine.textContent = `Gota de néctar colocada em (${px.toFixed(1)}, ${pz.toFixed(1)}).`;
+    statusLine.textContent = `Gota de sangue colocada em (${px.toFixed(1)}, ${pz.toFixed(1)}).`;
   } else if (placeMode === 'ball') {
     ballState = { x: px, z: pz, vx: (Math.random() - 0.5) * 0.18, vz: (Math.random() - 0.5) * 0.18 };
     ballMesh.position.set(px, BALL_R, pz);
@@ -2115,7 +2116,7 @@ document.getElementById('btn-feed').addEventListener('click', () => {
   nectarMesh.scale.set(1.2, 0.55, 1.2);
   nectarGroup.visible = true;
   playTone(540, 0.14, 'sine', 0.07);
-  statusLine.textContent = 'Gota de néctar colocada no terrário! Ela vai farejar quando estiver com fome.';
+  statusLine.textContent = 'Gota de sangue colocada no terrário! Ela vai farejar quando estiver com fome.';
 });
 
 document.getElementById('btn-ball').addEventListener('click', () => {
@@ -2153,7 +2154,7 @@ document.querySelectorAll('.place-btn').forEach(btn => {
     btn.classList.add('active');
     placeMode = btn.dataset.place;
     const labels = {
-      nectar: 'Clique em qualquer ponto do chão 3D para pingar Néctar.',
+      nectar: 'Clique em qualquer ponto do chão 3D para pingar Sangue.',
       ball: 'Clique em qualquer ponto do chão 3D para posicionar a Bolinha.',
       pillar: 'Clique em qualquer ponto do chão 3D para construir um Obstáculo.',
       call: 'Clique em qualquer ponto do chão 3D para chamar seu pet até lá.'
@@ -2169,7 +2170,7 @@ document.getElementById('btn-clear-custom').addEventListener('click', () => {
   nectarGroup.visible = false;
   callTarget.active = false;
   callRing.material.opacity = 0;
-  statusLine.textContent = 'Itens colocados (obstáculos e néctar) removidos do terrário.';
+  statusLine.textContent = 'Itens colocados (obstáculos e sangue) removidos do terrário.';
 });
 
 btnSleep.addEventListener('click', () => {
