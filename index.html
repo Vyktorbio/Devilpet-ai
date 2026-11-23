@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DevilPet AI — Cemitério 3D</title>
+<title>Devilpet · Terrário</title>
+<meta name="theme-color" content="#141419">
 <script src="./vendor/three.min.js?v=stable-rollback-20261120"></script>
 <style>
   :root {
@@ -335,6 +336,51 @@
 .reinforcement-toolbar .btn-group{width:100%;justify-content:center}
 .reinforcement-toolbar button{flex:1;justify-content:center;min-width:0}
 @media(max-width:640px){.reinforcement-toolbar button{font-size:11px;padding:8px 6px}.reinforcement-toolbar .kbd{display:none}}
+
+  :root { --bg:#101014; --panel:#212027; --panel-2:#2a2931; --text:#f5f1ed; --muted:#b5afb9; --accent:#edab8c; --border:#454049; }
+  .layout {display:block; padding:clamp(6px,1.5vw,20px); max-width:1800px}
+  .stage-col {padding:clamp(8px,1.1vw,16px); gap:10px; background:#19191e; border-color:#37343b}
+  .command-bar, .command-bar nav {display:flex;align-items:center;gap:8px}
+  .command-bar {position:relative;justify-content:space-between;flex-wrap:wrap;padding:2px 2px 6px}
+  .brand {display:flex;align-items:center;gap:12px;font:700 clamp(23px,3vw,34px)/1 Georgia,serif;letter-spacing:-.055em;margin:0}
+  .wingmark {display:inline-flex;align-items:center;gap:2px;transform:rotate(-8deg)}
+  .wingmark::before,.wingmark::after {content:'';width:11px;height:18px;background:#edab8c;border-radius:80% 25% 75% 20%;transform:rotate(-42deg)}
+  .wingmark::after {transform:scaleX(-1) rotate(-42deg)}
+  .command-bar button,#builder summary,.palette button,.session-tools button,.cam-hud button {font:600 13px/1.2 system-ui;color:var(--text);background:#2b2930;border:1px solid var(--border);border-radius:9px;padding:0 13px;min-height:44px;box-shadow:none}
+  #builder summary {cursor:pointer;display:flex;align-items:center;gap:7px;list-style:none}
+  #builder summary::-webkit-details-marker {display:none}
+  #builder summary::after {content:'⌄'}
+  #builder[open] summary::after {transform:rotate(180deg)}
+  .command-bar button.active,.palette button.active,#builder[open] summary,#btn-data[aria-expanded=true] {color:#241a17;background:#edab8c;border-color:#edab8c}
+  .palette,.pet-data-drawer {background:#201f25;border:1px solid var(--border);border-radius:14px;box-shadow:0 14px 44px #0008;overscroll-behavior:contain}
+  .palette {position:absolute;z-index:20;right:0;top:100%;width:min(350px,100%);padding:16px;max-height:65dvh;overflow:auto}
+  .palette h2 {font-size:13px;margin:0 0 8px;color:var(--muted)}
+  .tool-grid,.session-tools {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-bottom:16px}
+  .tool-grid button,.session-tools button {justify-content:center}
+  .viewport {height:clamp(240px,calc(100dvh - 210px),1050px);min-height:0;border-color:#49434a}
+  .cam-hud {top:10px;bottom:auto;right:10px;gap:4px}
+  .cam-hud button {background:#1b191fee;padding:0 10px;min-width:44px}
+  .hud-pill strong {color:#f4c4a9}
+  .reinforcement-toolbar .btn-group {background:none;border:0;gap:8px;padding:0}
+  .reinforcement-toolbar button {min-height:44px;box-shadow:none}
+  button.btn-pos {background:#224438;border-color:#426756}
+  button.btn-neg {background:#482d39;border-color:#755061}
+  .pet-data-drawer {top:76px;max-height:calc(100dvh - 88px)}
+  .pet-data-summary {position:sticky;top:0;background:#201f25;z-index:1}
+  button:focus-visible,summary:focus-visible {outline:3px solid #ffc9a8;outline-offset:2px}
+  @media(max-width:680px) {
+    .command-bar,.command-bar nav {gap:4px}
+    .brand {gap:6px;font-size:22px}
+    .command-bar button,#builder summary {padding:0 7px;font-size:12px}
+    .hud-overlay {top:auto;bottom:56px}
+    .hud-pill {font-size:11px;padding:6px 8px}
+    .viewport {height:calc(100dvh - 172px);min-height:240px}
+    .cam-hud {left:8px;right:auto;top:8px}
+  }
+  @media(max-height:480px) and (orientation:landscape) {
+    .viewport {height:calc(100dvh - 115px);min-height:150px}
+  }
+  @media(prefers-reduced-motion:reduce) {button,summary {transition:none}}
 </style>
 <script src="./neural-engine.js?v=stable-rollback-20261120"></script>
 <script src="./scenario-world.js?v=training-scenes-20261120"></script>
@@ -342,35 +388,43 @@
 <body>
 <div class="layout">
   <div class="card stage-col">
-    <div class="topbar">
-      <div class="btn-group">
-        <button type="button" id="btn-play" class="active">Pausar</button>
-        <button type="button" id="btn-sleep" class="btn-sleep">Descansar (LTM)</button>
-        <button type="button" id="btn-cam">Câmera: Longe</button>
-        <button type="button" id="btn-mute">Som: Ligado</button>
-        <button type="button" id="btn-data" aria-expanded="false" aria-controls="pet-data-drawer" title="Mostrar dados e controles">☰ Dados</button>
-      </div>
-      <div class="btn-group">
-        <button type="button" id="btn-reset-weights">Zerar Memória</button>
-        <button type="button" id="btn-save">Salvar</button>
-        <button type="button" id="btn-load">Restaurar</button>
-      </div>
-    </div>
-
-    <div class="topbar" style="padding-top: 0; padding-bottom: 2px;">
-      <div class="btn-group">
-        <span style="font-size: 11.5px; color: var(--muted); padding: 0 6px;">Clique no 3D:</span>
-        <button type="button" class="place-btn active" data-place="nectar">Sangue</button>
-        <button type="button" class="place-btn" data-place="ball">Bolinha</button><button type="button" class="place-btn" data-place="pond">Lago</button>
-        <button type="button" class="place-btn" data-place="forest">Floresta</button>
-<button type="button" class="module-btn" data-module="cemetery">Cemitério</button>
+    <header class="command-bar">
+      <h1 class="brand"><i class="wingmark" aria-hidden="true"></i>Devilpet</h1>
+      <nav aria-label="Controles da arena">
+<button type="button" id="btn-play" class="active">Pausar</button>
+        <details id="builder">
+          <summary>Montar arena</summary>
+          <div class="palette">
+            <h2>Posicionar no chão</h2>
+            <div class="tool-grid"><button type="button" class="place-btn active" data-place="nectar">Sangue</button>
+<button type="button" class="place-btn" data-place="ball">Bolinha</button>
+<button type="button" class="place-btn" data-place="pond">Lago</button>
+<button type="button" class="place-btn" data-place="forest">Floresta</button>
+<button type="button" class="place-btn" data-place="shelter">Caixa-refúgio</button>
+<button type="button" class="place-btn" data-place="pillar">Obstáculo</button>
+<button type="button" class="place-btn" data-place="call">Chamar Pet</button></div>
+            <h2>Estruturas da arena</h2>
+            <div class="tool-grid"><button type="button" class="module-btn" data-module="cemetery">Cemitério</button>
 <button type="button" class="module-btn" data-module="maze">Labirinto</button>
 <button type="button" class="module-btn" data-module="ground">Arcos da bolinha</button>
-<button type="button" class="module-btn" data-module="air">Aros aéreos</button>
-        <button type="button" class="place-btn" data-place="shelter">Caixa-refúgio</button>
-        <button type="button" class="place-btn" data-place="pillar">Obstáculo</button>
-        <button type="button" class="place-btn" data-place="call">Chamar Pet</button>
-        <button type="button" id="btn-clear-custom">Limpar Itens</button>
+<button type="button" class="module-btn" data-module="air">Aros aéreos</button></div>
+            <button type="button" id="btn-clear-custom">Limpar Itens</button>
+          </div>
+        </details>
+        <button type="button" id="btn-data" aria-expanded="false" aria-controls="pet-data-drawer" title="Mostrar dados e controles">Dados</button>
+      </nav>
+    </header>
+    <div class="viewport" id="viewport">
+      <div class="hud-overlay">
+        <div class="hud-pill" id="hud-zone">Zona atual: <strong>Centro do Cemitério</strong></div>
+      </div>
+      <div class="hud-bottom">
+        <div class="hud-pill" id="hud-action">Ação: <strong>Explorando</strong> · Altitude: <strong>0.0 cm</strong></div>
+      </div>
+      <div class="cam-hud"><button type="button" id="btn-cam">Câmera: Longe</button>
+        <button type="button" id="btn-zoom-in" title="Aproximar câmera" aria-label="Aproximar câmera">+</button>
+        <button type="button" id="btn-zoom-out" title="Afastar câmera" aria-label="Afastar câmera">−</button>
+        <button type="button" id="btn-cam-far" title="Visão panorâmica mais distante">Panorama</button>
       </div>
     </div>
 
@@ -381,25 +435,12 @@
       </div>
     </div>
 
-    <div class="viewport" id="viewport">
-      <div class="hud-overlay">
-        <div class="hud-pill" id="hud-zone">Zona atual: <strong>Centro do Cemitério</strong></div>
-      </div>
-      <div class="hud-bottom">
-        <div class="hud-pill" id="hud-action">Ação: <strong>Explorando</strong> · Altitude: <strong>0.0 cm</strong></div>
-      </div>
-      <div class="cam-hud">
-        <button type="button" id="btn-zoom-in" title="Aproximar câmera">Zoom +</button>
-        <button type="button" id="btn-zoom-out" title="Afastar câmera">Zoom -</button>
-        <button type="button" id="btn-cam-far" title="Visão panorâmica mais distante">Visão Longe</button>
-      </div>
-    </div>
-
   </div>
 
   <details class="card pet-data-drawer" id="pet-data-drawer">
     <summary class="pet-data-summary">Dados e controles</summary>
     <div class="pet-data-content">
+    <div class="session-tools"><button type="button" id="btn-sleep" class="btn-sleep">Descansar (LTM)</button><button type="button" id="btn-mute">Som: Ligado</button><button type="button" id="btn-save">Salvar</button><button type="button" id="btn-load">Restaurar</button><button type="button" id="btn-reset-weights">Zerar Memória</button></div>
     <div class="clicker-bar">
       <div class="elig-wrap">
         <div class="elig-head">
@@ -1958,7 +1999,26 @@ viewport.addEventListener('wheel',e=>{
 
 const dataButton=document.getElementById('btn-data');
 const dataDrawer=document.getElementById('pet-data-drawer');
+const builder = document.getElementById('builder');
+builder.addEventListener('toggle', () => {
+  if (builder.open) dataDrawer.open = false;
+});
+document.addEventListener('pointerdown', event => {
+  if (!builder.contains(event.target)) builder.open = false;
+  if (!dataDrawer.contains(event.target) && !dataButton.contains(event.target)) dataDrawer.open = false;
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (builder.open) {
+    builder.open = false;
+    builder.querySelector('summary').focus();
+  } else if (dataDrawer.open) {
+    dataDrawer.open = false;
+    dataButton.focus();
+  }
+});
 dataButton.addEventListener('click',()=>{
+  builder.open = false;
   dataDrawer.open=!dataDrawer.open;
   dataButton.setAttribute('aria-expanded',String(dataDrawer.open));
 });
@@ -1982,6 +2042,8 @@ document.querySelectorAll('.place-btn').forEach(btn => {
     document.querySelectorAll('.place-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     placeMode = btn.dataset.place;
+    builder.open = false;
+    builder.querySelector('summary').focus();
     const labels = {
       nectar: 'Clique em qualquer ponto do chão 3D para pingar Sangue.',
       ball: 'Clique em qualquer ponto do chão 3D para posicionar a Bolinha.',
