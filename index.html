@@ -382,7 +382,7 @@
   }
   @media(prefers-reduced-motion:reduce) {button,summary {transition:none}}
 </style>
-<script src="./neural-engine.js?v=stable-rollback-20261120"></script>
+<script src="./neural-engine.js?v=resource-memory-1"></script>
 <script src="./scenario-world.js?v=training-scenes-20261120"></script>
 </head>
 <body>
@@ -1401,6 +1401,7 @@ function triggerReinforcement(val) {
 
 
 let neuroEthology=new FlyNeuroEthology();
+let resourceMemory = new ResourceMemory();
 function runNeuroExperiments() {
   // Paired training, extinction, reversal and retention; deterministic simulated tests.
   const report=[];
@@ -1488,6 +1489,9 @@ function stepSimulation() {
   if(insideShelter&&!shelterContact){shelterVisits++;shelterContact=true;}
   if(!insideShelter)shelterContact=false;
   if(insideShelter)shelterSeconds+=metabolismDt;
+  const energyBeforeContact = pet.energy;
+  const hydrationBeforeContact = pet.hydration;
+  const resourceSignals = [sampleResourceField(nectarState, flyPos), sampleResourceField(pondState, flyPos)];
   const drinking=pondState.active&&!sleeping&&Math.hypot(flyPos.x-pondState.x,flyPos.z-pondState.z)<1.38&&flyPos.y<0.55&&pet.hydration<0.98;
   if(drinking){pet.hydration=Math.min(1,pet.hydration+metabolismDt/10);waterDrinkingSeconds+=metabolismDt;if(!waterContact){waterVisits++;waterContact=true;}}
   else waterContact=false;
@@ -1551,7 +1555,9 @@ function stepSimulation() {
 
   // Natural odor-guided foraging, competing with trained zone preferences.
   const odorSignals=habitatActive()?localOlfaction(flyPos):HABITAT_FRUITS.map(()=>({food:0,left:0,right:0}));
-  const neuroDecision=neuroEthology.choose(odorSignals,pet);
+  const learned = resourceMemory.steer(resourceSignals, pet);
+  const resourceInterest = Math.hypot(learned.x, learned.y, learned.z);
+  const neuroDecision=neuroEthology.choose(odorSignals,pet,resourceInterest);
   const foraging = habitatActive()?habitatStep(neuroDecision,odorSignals):{dx:0,dy:0,dz:0,feeding:false};
   if(neuroDecision.activity!=='alimentar') {
     foraging.dx=0;foraging.dz=0;foraging.dy=0;
@@ -1560,7 +1566,7 @@ function stepSimulation() {
     actionLabel='Buscando repouso';
   }
 
-  if (!nectarState.active && !callTarget.active) {
+  if (neuroDecision.activity === 'alimentar') {
     desiredX += foraging.dx;
     desiredY += foraging.dy;
     desiredZ += foraging.dz;
@@ -1573,7 +1579,7 @@ function stepSimulation() {
     const dp = Math.hypot(flyPos.x - p.x, flyPos.y - p.y, flyPos.z - p.z);
     if (dp < nearestPerchD) { nearestPerchD = dp; nearestPerch = p; }
   }
-  if (!sleeping && pet.rest < 0.45 && nearestPerch && !nectarState.active) {
+  if (!sleeping && pet.rest < 0.45 && nearestPerch && neuroDecision.activity === 'repousar') {
     desiredX += ((nearestPerch.x - flyPos.x) / Math.max(0.5, nearestPerchD)) * 0.75;
     desiredY += ((nearestPerch.y + 0.12 - flyPos.y) / Math.max(0.5, nearestPerchD)) * 0.85;
     desiredZ += ((nearestPerch.z - flyPos.z) / Math.max(0.5, nearestPerchD)) * 0.75;
@@ -1584,10 +1590,6 @@ function stepSimulation() {
     const dx = nectarState.x - flyPos.x;
     const dz = nectarState.z - flyPos.z;
     const dN = Math.hypot(dx, dz);
-    const hungerPull = (1.15 - pet.energy) * 2.4;
-    desiredX += (dx / Math.max(0.4, dN)) * hungerPull;
-    desiredY += ((0.0 - flyPos.y) / Math.max(0.4, dN)) * hungerPull;
-    desiredZ += (dz / Math.max(0.4, dN)) * hungerPull;
     if (dN < 1.15 && flyPos.y < 0.6) {
       feedingNow = true;
       actionLabel = 'Alimentando-se (MN9)';
@@ -1601,13 +1603,16 @@ function stepSimulation() {
         statusLine.textContent = 'Seu pet terminou a gota de sangue!';
       }
     }
-  } else if (!sleeping && callTarget.active) {
+  }
+  if (!sleeping && callTarget.active) {
     const dx = callTarget.x - flyPos.x;
     const dz = callTarget.z - flyPos.z;
     const dC = Math.hypot(dx, dz);
-    desiredX += (dx / Math.max(0.4, dC)) * 2.2;
-    desiredZ += (dz / Math.max(0.4, dC)) * 2.2;
-    actionLabel = 'Indo ao ponto clicado';
+    if (!feedingNow && neuroDecision.activity === 'explorar' && dC < 8) {
+      const interest = pet.curiosity * (1 - dC / 8);
+      desiredX += dx / Math.max(0.4, dC) * interest;
+      desiredZ += dz / Math.max(0.4, dC) * interest;
+    }
     callTarget.timer--;
     callRing.material.opacity = Math.min(0.85, callTarget.timer / 40);
     const sRing = 1 + (1 - callTarget.timer / 140) * 1.4;
@@ -1616,7 +1621,8 @@ function stepSimulation() {
       callTarget.active = false;
       callRing.material.opacity = 0;
     }
-  } else if (!sleeping && ballAvailable() && pet.curiosity > 0.45 && distBall < 7.5) {
+  }
+  if (!sleeping && !feedingNow && neuroDecision.activity === 'brincar' && ballAvailable() && pet.curiosity > 0.45 && distBall < 7.5) {
     const dx = ballState.x - flyPos.x;
     const dz = ballState.z - flyPos.z;
     const playPull = pet.curiosity * (1.0 + Math.max(0, brain.mbonRate[3]));
@@ -1696,6 +1702,18 @@ function stepSimulation() {
     statusLine.textContent='Bolinha atravessou '+arch.label+' ('+count+' passagens).';
     updateSceneProgress();
   });
+  }
+
+  if (sleeping) {
+    resourceMemory.traces.fill(0);
+  } else {
+    resourceMemory.observe(resourceSignals, pet.energy - energyBeforeContact,
+      pet.hydration - hydrationBeforeContact, metabolismDt);
+    if (neuroDecision.activity === 'alimentar' && !feedingNow && !drinking) {
+      desiredX += learned.x;
+      desiredY += learned.y;
+      desiredZ += learned.z;
+    }
   }
 
   const previousFly={x:flyPos.x,y:flyPos.y,z:flyPos.z};
@@ -2119,6 +2137,7 @@ document.getElementById('btn-pos').addEventListener('click', () => triggerReinfo
 document.getElementById('btn-neg').addEventListener('click', () => triggerReinforcement(-1.0));
 
 document.getElementById('btn-reset-weights').addEventListener('click', () => {
+  resourceMemory = new ResourceMemory();
   brain.shortW.fill(0);
   brain.longW.fill(0);
   brain.elig.fill(0);
@@ -2151,6 +2170,7 @@ document.getElementById('btn-save').addEventListener('click', () => {
        habitatLayout:{forest:forestItems.map(p=>({x:p.x,z:p.z})),shelters:shelterItems.map(p=>({x:p.x,z:p.z}))},shelterVisits,shelterSeconds, score, streak, missionIdx, missionHits, flyPos,
       scenario:'clean', modules:{...enabledModules}, scenarioStats:scenarioWorld.snapshot(),
       sleeping, sleepElapsedSeconds, sleepStartRest, sleepDay, sleepTodaySeconds,
+      resourceWeights:Array.from(resourceMemory.weights),
       neuroEthology:neuroEthology.snapshot()
     };
     localStorage.setItem('drosophila_3d_trainer_v1', JSON.stringify(payload));
@@ -2190,6 +2210,7 @@ document.getElementById('btn-load').addEventListener('click', () => {
     btnSleep.classList.toggle('active', sleeping);
     btnSleep.textContent = sleeping ? 'Acordar Pet' : 'Descansar (LTM)';
     neuroEthology=new FlyNeuroEthology();neuroEthology.restore(d.neuroEthology);
+    resourceMemory = new ResourceMemory(d.resourceWeights);
     score = d.score || 0; streak = d.streak || 0;
     missionIdx = d.missionIdx || 0; missionHits = d.missionHits || 0;
     if (d.flyPos) flyPos = d.flyPos;

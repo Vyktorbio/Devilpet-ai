@@ -67,11 +67,23 @@ try {
   await page.waitForFunction(prev=>brain.tick>prev,paused,{timeout:12000});
 
   // Preserve original localStorage checkpoints and reload a pet safely.
+  // A neutral fly has no water preference. Physical contact creates the association.
+  const weights = await page.evaluate(() => {
+    pet.hydration = 0.4;
+    pondState = {active:true,x:flyPos.x,z:flyPos.z};
+    flyPos.y = 0;
+    lastMetabolismStamp = performance.now() - 50;
+    stepSimulation();
+    return Array.from(resourceMemory.weights);
+  });
+  assert.ok(weights[3] > 0 && weights[2] === 0, 'drinking teaches hydration');
+  await page.locator('#btn-data').click();
   await page.locator('#btn-save').click();
   const stored=await page.evaluate(()=>{
     const raw=localStorage.getItem('drosophila_3d_trainer_v1');
     return raw?JSON.parse(raw):null;
   });
+  assert.ok(stored.resourceWeights[3] >= weights[3]);
   assert.ok(stored?.tick>0,'pet saved with neural time');
   assert.ok(stored?.shortW?.length>0&&stored?.longW?.length>0,
     'learned weights preserved');

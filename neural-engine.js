@@ -235,11 +235,11 @@ class FlyNeuroEthology {
     }
     return denom?sum/denom:0;
   }
-  choose(sensory,pet) {
+  choose(sensory,pet,resourceInterest=0) {
     this.steps++;
     const hunger=1-pet.energy,fatigue=1-pet.rest;
     const actions=[
-      {name:'alimentar',score:0.15+2.5*hunger+Math.max(...sensory.map((v,i)=>this.odorValue(i)))*0.45},
+      {name:'alimentar',score:0.15+2.5*hunger+Math.max(0,...sensory.map((v,i)=>this.odorValue(i)*v.food))*0.45+resourceInterest},
       {name:'repousar',score:0.1+2.1*fatigue},
       {name:'explorar',score:0.4+pet.curiosity*0.8},
       {name:'brincar',score:0.10+pet.curiosity*0.9}
@@ -285,4 +285,54 @@ class FlyNeuroEthology {
   }
   snapshot(){return {weights:Array.from(this.weights),spatial:Array.from(this.spatial),visits:Array.from(this.visits),rewards:this.rewards,punishments:this.punishments,steps:this.steps,rng:this.rng.getState()};}
   restore(d){if(!d)return;if(d.weights?.length===this.weights.length)this.weights.set(d.weights);if(d.spatial?.length===4)this.spatial.set(d.spatial);if(d.visits?.length===4)this.visits.set(d.visits);this.rewards=d.rewards||0;this.punishments=d.punishments||0;this.steps=d.steps||0;if(Number.isInteger(d.rng))this.rng.setState(d.rng);}
+}
+
+
+// Two local sensory channels predict changes in energy and hydration.
+// The environment supplies signal intensity and gradient, never target coordinates.
+class ResourceMemory {
+  constructor(saved) {
+    this.weights = new Float64Array(4);
+    if (Array.isArray(saved) && saved.length === 4 && saved.every(Number.isFinite)) {
+      this.weights.set(saved.map(value => Math.max(0, Math.min(1, value))));
+    }
+    this.traces = new Float64Array(2);
+  }
+
+  observe(signals, energyGain, waterGain, seconds) {
+    const decay = Math.exp(-seconds / 0.6);
+    const gains = [energyGain, waterGain];
+    for (let cue = 0; cue < 2; cue++) {
+      const trace = Math.max(signals[cue].strength, this.traces[cue] * decay);
+      this.traces[cue] = trace;
+      for (let need = 0; need < 2; need++) {
+        const index = cue * 2 + need;
+        const fraction = -Math.expm1(-8 * trace * Math.max(0, gains[need]));
+        this.weights[index] += (1 - this.weights[index]) * fraction;
+      }
+    }
+  }
+
+  steer(signals, pet) {
+    const movement = {x:0, y:0, z:0};
+    for (let cue = 0; cue < 2; cue++) {
+      const value = this.weights[cue * 2] * (1 - pet.energy)
+        + this.weights[cue * 2 + 1] * (1 - pet.hydration);
+      const signal = signals[cue];
+      movement.x += value * signal.x;
+      movement.y += value * signal.y;
+      movement.z += value * signal.z;
+    }
+    return movement;
+  }
+}
+
+// Compact, smooth signal field. Its gradient fades at the source and at the edge.
+function sampleResourceField(source, position) {
+  if (!source.active) return {strength:0, x:0, y:0, z:0};
+  const dx = source.x - position.x, dy = -position.y, dz = source.z - position.z;
+  const range = 6;
+  const envelope = Math.max(0, 1 - (dx*dx + dy*dy + dz*dz) / (range*range));
+  const gradient = 4 * envelope / range;
+  return {strength:envelope * envelope, x:gradient*dx, y:gradient*dy, z:gradient*dz};
 }
